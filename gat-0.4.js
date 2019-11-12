@@ -154,10 +154,6 @@ gat.CenteredElement = class{
     this.element.height = sizeArg[1];
     this.resize()
   }
-
-  toggleLoader(){
-    
-  }
 }
 
 gat.addSaveAsSVGKey = function(key, canvasElement, drawfunc, namefunc){
