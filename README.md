@@ -5,5 +5,7 @@ An online tool to generate a custom map with custom rules with an osm dataset in
 ## todo
 
 add favicon
-save svg feature
-<https://github.com/ariutta/svg-pan-zoom#how-to-use> after pan and zoom save pan and zoom in textarea and in url
+
+save svg with the right pan and zoom
+
+save map file name in settings and check for it locally otherwise pop up and ask for it. Maybe with link?

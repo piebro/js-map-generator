@@ -24,7 +24,9 @@ if(gat.getURLQueryParam("f") !== null){
 } else {
   startText = 
 `[{
- "canvas size": [1000,1000]
+ "canvas size": [1000,1000],
+ "zoom": 1.0,
+ "pan": [0,0]
 },
 {
  "fill color": "#00af00",
@@ -72,17 +74,22 @@ if(gat.getURLQueryParam("f") !== null){
 
 const uiObj = setUpGui();
 
-const svgDiv = new gat.CenteredElement("div", [1000,1000], {borderAlpha:1});
+const svgDiv = new gat.CenteredElement("div", [1000,1000], {borderAlpha:0.96});
 svgDiv.element.style.backgroundColor="#EEEEEE";
 uiObj.canvasDiv.appendChild(svgDiv.element);
 svgDiv.resize();
 
 window.addEventListener("resize", draw);
 
+window.addEventListener("keyup", (event) => {
+    if (document.activeElement.tagName == "TEXTAREA" || document.activeElement.tagName == "INPUT") return
+    if(event.key === "s"){
+      gat.downloadText("map" + ".svg", draw(true));
+    }
+  });
+
 drawRulesInputJson = JSON.parse(uiObj.textarea.value);
 updateMapObj(draw);
-draw();
-
 
 function setUpGui(){
   let uiObj = new gat.ui();
@@ -97,7 +104,7 @@ function setUpGui(){
   uiObj.addFinishedTypingCallback(mapSettingsChanged, 600);
 
   uiObj.addButton("save map", function(){
-    console.log("save map")
+    gat.downloadText("map" + ".svg", draw(true));
   })
 
   uiObj.textarea = textarea;
@@ -120,7 +127,6 @@ function setUpGui(){
         for(let tag2 of tag2Array){
           stringOut += "\n  " + tag2[0] + ": " + tag2[1];
         }
-        //stringOut += "\n"
       }
     return stringOut;
     }
@@ -154,18 +160,28 @@ function mapSettingsChanged(){
 }
 
 
-function draw(){
-  let mainSVG = document.getElementById("mainSVG");
-  if(mainSVG !== null) mainSVG.remove();
+function draw(saveFlag){
+  if(saveFlag !== true){
+    gat.setURLQueryParam("f", uiObj.textarea.value)
+    
+    let mainSVG = document.getElementById("mainSVG");
+    if(mainSVG !== null) mainSVG.remove();
+  }
+  
+  let size = drawRulesInputJson[0]["canvas size"];
 
   var ctx = SVG();
-  ctx.viewbox(0, 0, ...drawRulesInputJson[0]["canvas size"])
+  ctx.viewbox(0, 0, ...size)
 
   ctx.node.id = "mainSVG";
   ctx.node.style="width:100%; height:100%"
   ctx.stroke({linecap: 'round', linejoin: 'round'})
 
-  svgDiv.size = drawRulesInputJson[0]["canvas size"]
+  svgDiv.size = size
+
+  let rect = ctx.rect(9*size[0], 9*size[1]);
+  rect.move(-4*size[0], -4*size[1])
+  rect.fill("#ffffff")
 
   let drawingSettings = getDrawingSettings(drawRulesInputJson);
 
@@ -179,13 +195,58 @@ function draw(){
     }
   }
 
-  ctx.addTo(svgDiv.element);
-  var panZoomTiger = svgPanZoom("#mainSVG", {
-    controlIconsEnabled: true,
-  })
-  gat.setURLQueryParam("f", uiObj.textarea.value)
+  if(saveFlag === true){
+    return ctx.svg()
+  } else {
+    ctx.addTo(svgDiv.element);
+    var panZoomSVG = svgPanZoom("#mainSVG", {
+      controlIconsEnabled: true,
+      onZoom: function(){
+        let zoom = Math.round(panZoomSVG.getZoom()*10000)/10000
+        uiObj.textarea.value = uiObj.textarea.value.replace(new RegExp(/"zoom": [+-]?\d+(\.\d+)?/), "\"zoom\": " + zoom)
+        gat.setURLQueryParam("f", uiObj.textarea.value)
+      },
+      onPan: function(){
+        let pan = panZoomSVG.getPan()
+        pan.x = Math.round(pan.x*10000)/10000;
+        pan.y = Math.round(pan.y*10000)/10000;
+        uiObj.textarea.value = uiObj.textarea.value.replace(new RegExp(/"pan": \[[+-]?\d+(\.\d+)?\,[+-]?\d+(\.\d+)?\]/), "\"pan\": [" + pan.x  + "," + pan.y + "]")
+        gat.setURLQueryParam("f", uiObj.textarea.value)
+      },
+    })
+    panZoomSVG.zoom(drawRulesInputJson[0]["zoom"])
+    panZoomSVG.pan({x:drawRulesInputJson[0]["pan"][0], y:drawRulesInputJson[0]["pan"][1]})
+    return;
+  }
 
-  return;
+
+  function setTransformationMatrix(){
+    let zoomViewport = document.getElementsByClassName("svg-pan-zoom_viewport")[0];
+    let zoom = drawRulesInputJson[0]["zoom"];
+    let pan = drawRulesInputJson[0]["pan"];
+    zoomViewport.setAttribute("transform", 
+    "matrix(" + zoom + ",0,0," + zoom + "," + pan[0] + "," + pan[1] + ")");
+    console.log("matrix(" + zoom + ",0,0," + zoom + "," + pan[0] + "," + pan[1] + ")")
+  }
+
+  function updateMapSettingsWithTransformMatrix(){
+    let transform = getCurrentTransformMatrix();
+    drawRulesInputJson[0]["zoom"] = transform.zoom;
+    drawRulesInputJson[0]["pan"] = transform.pan;
+    uiObj.textarea.value = uiObj.textarea.value
+      .replace(new RegExp(/"zoom": [+-]?\d+(\.\d+)?/), "\"zoom\": " + transform.zoom)
+      .replace(new RegExp(/"pan": \[[+-]?\d+(\.\d+)?\,[+-]?\d+(\.\d+)?\]/), "\"pan\": [" + transform.pan[0]  + "," + transform.pan[1] + "]")
+  }
+
+  function getCurrentTransformMatrix(){
+    let zoomViewport = document.getElementsByClassName("svg-pan-zoom_viewport")[0];
+    let tranformArray = zoomViewport.getAttribute("transform").replace("matrix(", "").replace(")", "").split(",").map((str)=>parseFloat(str));
+
+    return {
+      zoom: Math.round(tranformArray[0] * 10000) / 10000,
+      pan: [Math.round(tranformArray[4] * 10000) / 10000, Math.round(tranformArray[5] * 10000) / 10000]
+    }
+  }
 
   function drawNodes(ctx, drawingSettings, tag){
     tagDrawSettings = drawingSettings.drawRulesNodes[tag[0]][tag[1]];
