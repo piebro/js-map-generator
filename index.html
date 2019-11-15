@@ -75,7 +75,7 @@ if(gat.getURLQueryParam("f") !== null){
 const uiObj = setUpGui();
 
 const svgDiv = new gat.CenteredElement("div", [1000,1000], {borderAlpha:0.96});
-svgDiv.element.style.backgroundColor="#EEEEEE";
+svgDiv.element.style.backgroundColor="#ffffff";
 uiObj.canvasDiv.appendChild(svgDiv.element);
 svgDiv.resize();
 
@@ -169,6 +169,7 @@ function draw(saveFlag){
   }
   
   let size = drawRulesInputJson[0]["canvas size"];
+  svgDiv.size = size
 
   var ctx = SVG();
   ctx.viewbox(0, 0, ...size)
@@ -177,11 +178,21 @@ function draw(saveFlag){
   ctx.node.style="width:100%; height:100%"
   ctx.stroke({linecap: 'round', linejoin: 'round'})
 
-  svgDiv.size = size
+  
 
-  let rect = ctx.rect(9*size[0], 9*size[1]);
-  rect.move(-4*size[0], -4*size[1])
-  rect.fill("#ffffff")
+  if(saveFlag === true){
+    let rect = ctx.rect(9*size[0], 9*size[1]);
+    rect.move(-4*size[0], -4*size[1])
+    rect.fill("#ffffff")
+    let scale = drawRulesInputJson[0]["zoom"];
+    let panX = drawRulesInputJson[0]["pan"][0];
+    let panY = drawRulesInputJson[0]["pan"][1]
+    ctx.transform({
+      a: scale, b: 0, c: 0, d: scale, e: panX, f: panY
+    })
+  }
+
+  
 
   let drawingSettings = getDrawingSettings(drawRulesInputJson);
 
@@ -203,49 +214,33 @@ function draw(saveFlag){
       controlIconsEnabled: true,
       onZoom: function(){
         let zoom = Math.round(panZoomSVG.getZoom()*10000)/10000
+        drawRulesInputJson[0]["zoom"] = zoom;
         uiObj.textarea.value = uiObj.textarea.value.replace(new RegExp(/"zoom": [+-]?\d+(\.\d+)?/), "\"zoom\": " + zoom)
         gat.setURLQueryParam("f", uiObj.textarea.value)
       },
       onPan: function(){
         let pan = panZoomSVG.getPan()
+        // map to "canvas size" to get pan right no matter the actual client Size
+        pan.x = pan.x / svgDiv.element.clientWidth * drawRulesInputJson[0]["canvas size"][0];
+        pan.y = pan.y / svgDiv.element.clientHeight * drawRulesInputJson[0]["canvas size"][1];
+        
         pan.x = Math.round(pan.x*10000)/10000;
         pan.y = Math.round(pan.y*10000)/10000;
+
+        drawRulesInputJson[0]["pan"] = [pan.x, pan.y]
         uiObj.textarea.value = uiObj.textarea.value.replace(new RegExp(/"pan": \[[+-]?\d+(\.\d+)?\,[+-]?\d+(\.\d+)?\]/), "\"pan\": [" + pan.x  + "," + pan.y + "]")
         gat.setURLQueryParam("f", uiObj.textarea.value)
       },
     })
-    panZoomSVG.zoom(drawRulesInputJson[0]["zoom"])
-    panZoomSVG.pan({x:drawRulesInputJson[0]["pan"][0], y:drawRulesInputJson[0]["pan"][1]})
+
+    // map to client size to get pan right no matter the actual client Size
+    let panX = drawRulesInputJson[0]["pan"][0] / drawRulesInputJson[0]["canvas size"][0] * svgDiv.element.clientWidth;
+    let panY = drawRulesInputJson[0]["pan"][1] / drawRulesInputJson[0]["canvas size"][1] * svgDiv.element.clientHeight;
+
+    panZoomSVG.zoom(drawRulesInputJson[0]["zoom"]);
+    panZoomSVG.pan({x:panX, y:panY});
+
     return;
-  }
-
-
-  function setTransformationMatrix(){
-    let zoomViewport = document.getElementsByClassName("svg-pan-zoom_viewport")[0];
-    let zoom = drawRulesInputJson[0]["zoom"];
-    let pan = drawRulesInputJson[0]["pan"];
-    zoomViewport.setAttribute("transform", 
-    "matrix(" + zoom + ",0,0," + zoom + "," + pan[0] + "," + pan[1] + ")");
-    console.log("matrix(" + zoom + ",0,0," + zoom + "," + pan[0] + "," + pan[1] + ")")
-  }
-
-  function updateMapSettingsWithTransformMatrix(){
-    let transform = getCurrentTransformMatrix();
-    drawRulesInputJson[0]["zoom"] = transform.zoom;
-    drawRulesInputJson[0]["pan"] = transform.pan;
-    uiObj.textarea.value = uiObj.textarea.value
-      .replace(new RegExp(/"zoom": [+-]?\d+(\.\d+)?/), "\"zoom\": " + transform.zoom)
-      .replace(new RegExp(/"pan": \[[+-]?\d+(\.\d+)?\,[+-]?\d+(\.\d+)?\]/), "\"pan\": [" + transform.pan[0]  + "," + transform.pan[1] + "]")
-  }
-
-  function getCurrentTransformMatrix(){
-    let zoomViewport = document.getElementsByClassName("svg-pan-zoom_viewport")[0];
-    let tranformArray = zoomViewport.getAttribute("transform").replace("matrix(", "").replace(")", "").split(",").map((str)=>parseFloat(str));
-
-    return {
-      zoom: Math.round(tranformArray[0] * 10000) / 10000,
-      pan: [Math.round(tranformArray[4] * 10000) / 10000, Math.round(tranformArray[5] * 10000) / 10000]
-    }
   }
 
   function drawNodes(ctx, drawingSettings, tag){
