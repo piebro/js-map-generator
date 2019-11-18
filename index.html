@@ -15,37 +15,58 @@
 let map;
 let startText;
 let drawRulesInputJson;
+let currentFileName;
+let currentOsmUrl;
+let drawFirstMapFromUrlWithFileInput = false;
+
 const mapAreaWidthDegreeAddition = 0.004;
+const localFileNames = [
+  "monaco-latest.osm.pbf",
+  // https://www.openstreetmap.org/#map=18/43.73374/7.41638
+  "isle-of-man-latest.osm.pbf",
+  // https://www.openstreetmap.org/#map=18/54.15007/-4.48207
+  "liechtenstein-latest.osm.pbf",
+  // https://www.openstreetmap.org/relation/1155955#map=17/47.14617/9.51859
+  "seychelles-latest.osm.pbf",
+  // https://www.openstreetmap.org/relation/536765#map=17/-4.62276/55.45097
+]
 
 
+if(gat.getURLQueryParam("settings") !== null && gat.getURLQueryParam("file-name") !== null && gat.getURLQueryParam("osm-url") !== null){
+  
+  startText = gat.getURLQueryParam("settings");
+  startText = startText.replace(/%23/g, "#")
 
-if(gat.getURLQueryParam("f") !== null){
-  startText = gat.getURLQueryParam("f");
+  currentFileName = gat.getURLQueryParam("file-name");
+  currentOsmUrl = gat.getURLQueryParam("osm-url");
+
+  // check if file-name is locally available
+  if(localFileNames.indexOf(currentFileName) === -1){
+    drawFirstMapFromUrlWithFileInput = true;
+    
+  }
 } else {
+  currentFileName = "monaco-latest.osm.pbf";
+  currentOsmUrl = "https://www.openstreetmap.org/#map=18/43.73374/7.41638";
   startText = 
 `[{
  "canvas size": [1000,1000],
- "zoom": 1.0,
- "pan": [0,0]
-},
-{
- "fill color": "#00af00",
- "line width": 6,
- "type": "way",
- "tags": [
-   ["landuse", "forest"]
-  ]
+ "zoom": 2.2108,
+ "pan": [361.4961,-1003.5468]
 },
 {
  "stroke color": "#707070",
  "line width": 2,
  "type": "way",
  "tags": [
-  ["highway","*"]
+  ["highway","primary"],
+  ["highway","residential"],
+  ["highway","path"]
  ]
 },
 {
  "stroke color": "#a0a0a0",
+ "fill color": "#a0a0a0",
  "line width": 2,
  "type": "way",
  "tags": [
@@ -53,24 +74,32 @@ if(gat.getURLQueryParam("f") !== null){
  ]
 },
 {
- "stroke color": "#0000ff",
- "line width": 4,
- "type": "way",
+ "fill color": "#008000",
+ "type": "node",
+ "size": 20,
  "tags": [
-  ["natural", "coastline"]
+  ["natural", "tree"]
  ]
 },
 {
  "stroke color": "#ff0000",
  "line width": 5,
- "type": "node",
- "size": 4,
+ "type": "way",
  "tags": [
-  ["highway", "crossing"]
+  ["railway", "*"]
  ]
-}]
-`
+},
+{
+ "stroke color": "#2020a0",
+ "fill color": "#2020a0",
+ "line width": 2,
+ "type": "way",
+ "tags": [
+   ["place","*"]
+ ]
+}]`
 }
+
 
 const uiObj = setUpGui();
 
@@ -82,14 +111,28 @@ svgDiv.resize();
 window.addEventListener("resize", draw);
 
 window.addEventListener("keyup", (event) => {
-    if (document.activeElement.tagName == "TEXTAREA" || document.activeElement.tagName == "INPUT") return
-    if(event.key === "s"){
-      gat.downloadText("map" + ".svg", draw(true));
-    }
-  });
+  if (document.activeElement.tagName == "TEXTAREA" || document.activeElement.tagName == "INPUT") return
+  if(event.key === "s"){
+    gat.downloadText("map" + ".svg", draw(true));
+  }
+});
 
-drawRulesInputJson = JSON.parse(uiObj.textarea.value);
-updateMapObj(draw);
+
+if(drawFirstMapFromUrlWithFileInput === false){
+  drawRulesInputJson = JSON.parse(uiObj.textarea.value);
+  updateMapObj(draw);
+} else {
+  
+  uploadButton = gat.addLoaderText();
+  
+  uploadButton.innerText = "The file: \"" + currentFileName + "\" is needed for the map. You can go to https://download.geofabrik.de, download it and then click here to use it."
+  uploadButton.onclick = function(){
+    triggerFileInput();
+    gat.removeLoaderText();
+  }
+
+
+}
 
 function setUpGui(){
   let uiObj = new gat.ui();
@@ -134,18 +177,28 @@ function setUpGui(){
 
 
 function newOsmMap(){
-  let osmURL = prompt("Enter the openstreetmap URL of the map you want to generate and then select the fitting .osm.pbf file you can download here: http://download.geofabrik.de", "");
+  let osmURL = prompt("Enter the openstreetmap URL of the map you want to generate and then select the fitting .osm.pbf file you can download here: https://download.geofabrik.de", "");
+  if (osmURL === null) {
+    console.log("no url given")
+    return;
+  }
+  setZoom(1, true);
+  setPan([0,0], true);
+  currentOsmUrl = osmURL;
+  triggerFileInput();
+}
 
+function triggerFileInput(){
   const fileInput = document.createElement("input");
   fileInput.type = "file";
   fileInput.accept = ".pbf"
   
   fileInput.addEventListener("change", function(){
+    currentFileName = this.files[0].name;
     let reader = new FileReader();
     reader.onload = function() {
-      drawRulesInputJson = JSON.parse(textarea.value);
-      
-      updateMapObj(draw, this.result, osmURL)
+      drawRulesInputJson = JSON.parse(uiObj.textarea.value);
+      updateMapObj(draw, this.result, currentOsmUrl);
     }
     reader.readAsArrayBuffer(this.files[0]);
   }, false);
@@ -159,10 +212,33 @@ function mapSettingsChanged(){
   draw();
 }
 
+function setZoom(zoom, changeInTextareaAndURL){
+  zoom = Math.round(zoom*10000)/10000
+  drawRulesInputJson[0]["zoom"] = zoom;
+  if(changeInTextareaAndURL){
+    uiObj.textarea.value = uiObj.textarea.value.replace(new RegExp(/"zoom": [+-]?\d+(\.\d+)?/), "\"zoom\": " + zoom)
+    gat.setURLQueryParam("settings", uiObj.textarea.value)
+  }
+}
+
+function setPan(pan, changeInTextareaAndURL){
+  // map to "canvas size" to get pan right no matter the actual client Size
+  pan[0] = pan[0] / svgDiv.element.clientWidth * drawRulesInputJson[0]["canvas size"][0];
+  pan[1] = pan[1] / svgDiv.element.clientHeight * drawRulesInputJson[0]["canvas size"][1];
+  
+  pan[0] = Math.round(pan[0]*10000)/10000;
+  pan[1] = Math.round(pan[1]*10000)/10000;
+
+  drawRulesInputJson[0]["pan"] = pan;
+  if(changeInTextareaAndURL){
+    uiObj.textarea.value = uiObj.textarea.value.replace(new RegExp(/"pan": \[[+-]?\d+(\.\d+)?\,[+-]?\d+(\.\d+)?\]/), "\"pan\": [" + pan[0]  + "," + pan[1] + "]")
+    gat.setURLQueryParam("settings", uiObj.textarea.value);
+  }
+}
 
 function draw(saveFlag){
   if(saveFlag !== true){
-    gat.setURLQueryParam("f", uiObj.textarea.value)
+    gat.setURLQueryParam("settings", uiObj.textarea.value)
     
     let mainSVG = document.getElementById("mainSVG");
     if(mainSVG !== null) mainSVG.remove();
@@ -178,8 +254,6 @@ function draw(saveFlag){
   ctx.node.style="width:100%; height:100%"
   ctx.stroke({linecap: 'round', linejoin: 'round'})
 
-  
-
   if(saveFlag === true){
     let rect = ctx.rect(9*size[0], 9*size[1]);
     rect.move(-4*size[0], -4*size[1])
@@ -191,8 +265,6 @@ function draw(saveFlag){
       a: scale, b: 0, c: 0, d: scale, e: panX, f: panY
     })
   }
-
-  
 
   let drawingSettings = getDrawingSettings(drawRulesInputJson);
 
@@ -209,27 +281,18 @@ function draw(saveFlag){
   if(saveFlag === true){
     return ctx.svg()
   } else {
+    gat.setURLQueryParam("osm-url", currentOsmUrl);
+    gat.setURLQueryParam("file-name", currentFileName);
+    
     ctx.addTo(svgDiv.element);
     var panZoomSVG = svgPanZoom("#mainSVG", {
       controlIconsEnabled: true,
       onZoom: function(){
-        let zoom = Math.round(panZoomSVG.getZoom()*10000)/10000
-        drawRulesInputJson[0]["zoom"] = zoom;
-        uiObj.textarea.value = uiObj.textarea.value.replace(new RegExp(/"zoom": [+-]?\d+(\.\d+)?/), "\"zoom\": " + zoom)
-        gat.setURLQueryParam("f", uiObj.textarea.value)
+        setZoom(panZoomSVG.getZoom(), true);
       },
       onPan: function(){
-        let pan = panZoomSVG.getPan()
-        // map to "canvas size" to get pan right no matter the actual client Size
-        pan.x = pan.x / svgDiv.element.clientWidth * drawRulesInputJson[0]["canvas size"][0];
-        pan.y = pan.y / svgDiv.element.clientHeight * drawRulesInputJson[0]["canvas size"][1];
-        
-        pan.x = Math.round(pan.x*10000)/10000;
-        pan.y = Math.round(pan.y*10000)/10000;
-
-        drawRulesInputJson[0]["pan"] = [pan.x, pan.y]
-        uiObj.textarea.value = uiObj.textarea.value.replace(new RegExp(/"pan": \[[+-]?\d+(\.\d+)?\,[+-]?\d+(\.\d+)?\]/), "\"pan\": [" + pan.x  + "," + pan.y + "]")
-        gat.setURLQueryParam("f", uiObj.textarea.value)
+        let pan = panZoomSVG.getPan();
+        setPan([pan.x, pan.y], true);
       },
     })
 
@@ -250,7 +313,7 @@ function draw(saveFlag){
       circle.move(xy[0], xy[1]);
       circle.fill(tagDrawSettings.fillColor);
       if(tagDrawSettings.strokeColor !== undefined){
-        circle.stroke({widht: tagDrawSettings.lineWidth, color: tagDrawSettings.strokeColor})
+        circle.stroke({width: tagDrawSettings.lineWidth, color: tagDrawSettings.strokeColor})
       }
     }
   }
@@ -286,16 +349,17 @@ function draw(saveFlag){
 }
 
 
-async function updateMapObj(callback, mapArrayBuffer, osmURL){
+async function updateMapObj(callback, mapArrayBuffer){
   let filePath;
-  if(mapArrayBuffer === undefined) {
-    filePath = "monaco-latest.osm.pbf";
-    osmURL = "https://www.openstreetmap.org/#map=17/43.72957/7.42408";
+  //console.log(currentFileName)
+  if(localFileNames.indexOf(currentFileName) >- 1){
+    //console.log("server available map")
+    filePath = "maps/" + currentFileName;
   }
 
   loaderText = gat.addLoaderText();
   
-  map = getEmptyMapWithBorders(osmURL);
+  map = getEmptyMapWithBorders(currentOsmUrl);
 
   loaderText.innerText = "loading ...";
 
@@ -306,7 +370,7 @@ async function updateMapObj(callback, mapArrayBuffer, osmURL){
     let valueBeginIndex = osmURL.search("#map") + 5;
     [zoomlevel, midLat, midLon] = osmURL.substr(valueBeginIndex).split("/").map(value => parseFloat(value));
 
-    let widthLon = 360 / Math.pow(2, zoomlevel);
+    let widthLon = 360 / Math.pow(2, zoomlevel-1);
     let widthHeightRatio = svgDiv.element.height/svgDiv.element.width;
     let heightLat = widthLon*widthHeightRatio;
 
