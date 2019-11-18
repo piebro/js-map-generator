@@ -52,7 +52,8 @@ if(gat.getURLQueryParam("settings") !== null && gat.getURLQueryParam("file-name"
 `[{
  "canvas size": [1000,1000],
  "zoom": 2.2108,
- "pan": [361.4961,-1003.5468]
+ "pan": [361.4961,-1003.5468],
+ "background": "#005000"
 },
 {
  "stroke color": "#707070",
@@ -242,6 +243,8 @@ function draw(saveFlag){
     
     let mainSVG = document.getElementById("mainSVG");
     if(mainSVG !== null) mainSVG.remove();
+    svgDiv.element.style.backgroundColor = drawRulesInputJson[0]["background"];
+    
   }
   
   let size = drawRulesInputJson[0]["canvas size"];
@@ -257,7 +260,7 @@ function draw(saveFlag){
   if(saveFlag === true){
     let rect = ctx.rect(9*size[0], 9*size[1]);
     rect.move(-4*size[0], -4*size[1])
-    rect.fill("#ffffff")
+    rect.fill(drawRulesInputJson[0]["background"])
     let scale = drawRulesInputJson[0]["zoom"];
     let panX = drawRulesInputJson[0]["pan"][0];
     let panY = drawRulesInputJson[0]["pan"][1]

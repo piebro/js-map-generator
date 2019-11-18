@@ -16,11 +16,7 @@ An online tool to generate a custom map with custom rules with an osm dataset in
 
 ### bug
 
-- reset zoom and pan with new map
-
 ### feature
-
-- backgroundcolor svg feature
 
 - show tags: generate tags from what exactly is visible and not what is possible
 
@@ -34,7 +30,7 @@ An online tool to generate a custom map with custom rules with an osm dataset in
 
 ### testing
 
-- bigger maps and draw only some stuff on a bigger area
+- bigger maps and draw only some stuff on a bigger area, too slow?
 
 ### current link
 
