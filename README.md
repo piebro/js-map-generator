@@ -18,15 +18,11 @@ An online tool to generate a custom map with custom rules with an osm dataset in
 
 ### feature
 
-- show tags: generate tags from what exactly is visible and not what is possible
-
-- show json errors with middle text
+- compress json/string for the url
 
 - make fill color better even when the last piece of the polygon is missing... close the polygone automatically?
 
 - the feature to select multiplecolors after to color differently for multiple districts for example
-
-- compress json/string for the url
 
 ### testing
 

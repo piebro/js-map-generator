@@ -45,7 +45,8 @@ if(gat.getURLQueryParam("settings") !== null && gat.getURLQueryParam("file-name"
     drawFirstMapFromUrlWithFileInput = true;
     
   }
-} else {
+}
+else {
   currentFileName = "monaco-latest.osm.pbf";
   currentOsmUrl = "https://www.openstreetmap.org/#map=18/43.73374/7.41638";
   startText = 
@@ -118,22 +119,20 @@ window.addEventListener("keyup", (event) => {
   }
 });
 
-
 if(drawFirstMapFromUrlWithFileInput === false){
   drawRulesInputJson = JSON.parse(uiObj.textarea.value);
   updateMapObj(draw);
-} else {
-  
+}
+else {
   uploadButton = gat.addLoaderText();
-  
   uploadButton.innerText = "The file: \"" + currentFileName + "\" is needed for the map. You can go to https://download.geofabrik.de, download it and then click here to use it."
   uploadButton.onclick = function(){
     triggerFileInput();
     gat.removeLoaderText();
   }
-
-
 }
+
+
 
 function setUpGui(){
   let uiObj = new gat.ui();
@@ -145,6 +144,7 @@ function setUpGui(){
   textarea.rows = 40;
   textarea.style.fontSize = "medium";
   textarea.style.width="94%";
+  textarea.autofocus = true;
   uiObj.addFinishedTypingCallback(mapSettingsChanged, 600);
 
   uiObj.addButton("save map", function(){
@@ -156,24 +156,76 @@ function setUpGui(){
   return uiObj;
 
   function showAvailableTags(){
-    alert("Way Tags:" + getTagOverviewString(map.tagOverviewWay) + "\n\n\nNode Tags:" + getTagOverviewString(map.tagOverviewNode))
+    [nodeTags, wayTags] = getCurrentVisibleTags();
+    alert("Way Tags:" + getTagOverviewString(wayTags) + "\n\n\nNode Tags:" + getTagOverviewString(nodeTags))
+  }
+
+  function getCurrentVisibleTags(){
+    let size = drawRulesInputJson[0]["canvas size"];
+    let zoom = drawRulesInputJson[0]["zoom"];
+    let pan = drawRulesInputJson[0]["pan"];
+    
+    let border = [
+      - pan[0],
+      - pan[1],
+      Math.round(size[0]/zoom - pan[0]),
+      Math.round(size[1]/zoom - pan[1]),
+    ]
+
+    let nodeTags = {}
+    for(let node of Object.entries(map.nodes)){
+      if(node[1].x>=border[0] && node[1].y>=border[1] && node[1].x<=border[2] && node[1].y<=border[3]){
+        countTag(nodeTags, node[1].tags)
+      }
+    }
+
+    let wayTags = {}
+    for(let way of Object.entries(map.ways)){
+      for(let nodeId of way[1].nodeRefs){
+        let node = map.nodes[nodeId];
+        if(node !== undefined && node.x>=border[0] && node.y>=border[1] && node.x<=border[2] && node.y<=border[3]){
+          countTag(wayTags, way[1].tags)
+          continue;
+        }
+      }
+    }
+    return [nodeTags, wayTags];
+  }
+
+  function countTag(saveInObj, tagArray){
+    const tagsThatAreCounted = {
+      amenity:true, boundary:true, building:true, highway: true, landuse:true, natural:true, place:true, railway:true, waterway:true,
+    }
+    //let tagArray = Object.entries(tagObj)
+    for(let tag of tagArray){
+      if(tagsThatAreCounted[tag[0]]){
+        if(saveInObj[tag[0]]===undefined){
+          saveInObj[tag[0]] = {};
+      }
+      if(saveInObj[tag[0]][tag[1]]===undefined){
+        saveInObj[tag[0]][tag[1]] = 1;
+      } else {
+        saveInObj[tag[0]][tag[1]]++;
+      }
+      }
+    }
   }
 
   function getTagOverviewString(tagOverview){
-      let stringOut = "";
-      for(let tag1 of Object.entries(tagOverview)){
-        stringOut += "\n" + tag1[0];
-        let tag2Array = Object.entries(tag1[1]);
-        tag2Array.sort(function(a, b){
-          if(a[1] === b[1]) return 0;
-          else return (a[1] > b[1]) ? -1 : 1;
-        })
-        for(let tag2 of tag2Array){
-          stringOut += "\n  " + tag2[0] + ": " + tag2[1];
-        }
+    let stringOut = "";
+    for(let tag1 of Object.entries(tagOverview)){
+      stringOut += "\n" + tag1[0];
+      let tag2Array = Object.entries(tag1[1]);
+      tag2Array.sort(function(a, b){
+        if(a[1] === b[1]) return 0;
+        else return (a[1] > b[1]) ? -1 : 1;
+      })
+      for(let tag2 of tag2Array){
+        stringOut += "\n  " + tag2[0] + ": " + tag2[1];
       }
-    return stringOut;
     }
+  return stringOut;
+  }
 }
 
 
@@ -209,12 +261,20 @@ function triggerFileInput(){
 
 
 function mapSettingsChanged(){
-  drawRulesInputJson = JSON.parse(uiObj.textarea.value);
-  draw();
+  currentSlectionStart = uiObj.textarea.selectionStart;
+  try{
+    drawRulesInputJson = JSON.parse(uiObj.textarea.value);
+    draw();
+  }
+  catch(error){
+    alert(error)
+  }
+  uiObj.textarea.focus();
+  uiObj.textarea.setSelectionRange(currentSlectionStart, currentSlectionStart);
 }
 
 function setZoom(zoom, changeInTextareaAndURL){
-  zoom = Math.round(zoom*10000)/10000
+  zoom = Math.round(zoom*10000)/10000;
   drawRulesInputJson[0]["zoom"] = zoom;
   if(changeInTextareaAndURL){
     uiObj.textarea.value = uiObj.textarea.value.replace(new RegExp(/"zoom": [+-]?\d+(\.\d+)?/), "\"zoom\": " + zoom)
@@ -226,9 +286,13 @@ function setPan(pan, changeInTextareaAndURL){
   // map to "canvas size" to get pan right no matter the actual client Size
   pan[0] = pan[0] / svgDiv.element.clientWidth * drawRulesInputJson[0]["canvas size"][0];
   pan[1] = pan[1] / svgDiv.element.clientHeight * drawRulesInputJson[0]["canvas size"][1];
+
+  pan[0] = pan[0] / drawRulesInputJson[0]["zoom"];
+  pan[1] = pan[1] / drawRulesInputJson[0]["zoom"];
   
-  pan[0] = Math.round(pan[0]*10000)/10000;
-  pan[1] = Math.round(pan[1]*10000)/10000;
+  pan[0] = Math.round(pan[0]);
+  pan[1] = Math.round(pan[1]);
+
 
   drawRulesInputJson[0]["pan"] = pan;
   if(changeInTextareaAndURL){
@@ -265,7 +329,7 @@ function draw(saveFlag){
     let panX = drawRulesInputJson[0]["pan"][0];
     let panY = drawRulesInputJson[0]["pan"][1]
     ctx.transform({
-      a: scale, b: 0, c: 0, d: scale, e: panX, f: panY
+      a: scale, b: 0, c: 0, d: scale, e: panX*scale, f: panY*scale
     })
   }
 
@@ -275,7 +339,8 @@ function draw(saveFlag){
     if(tag[2] === "way"){
       if(drawingSettings.orderedWays[tag[0]] === undefined || drawingSettings.orderedWays[tag[0]][tag[1]] === undefined) continue;
       drawWays(ctx, drawingSettings, tag);
-    } else if(tag[2] === "node"){
+    }
+    else if(tag[2] === "node"){
       if(drawingSettings.orderedNodes[tag[0]] === undefined || drawingSettings.orderedNodes[tag[0]][tag[1]] === undefined) continue;
       drawNodes(ctx, drawingSettings, tag);
     }
@@ -283,7 +348,8 @@ function draw(saveFlag){
 
   if(saveFlag === true){
     return ctx.svg()
-  } else {
+  }
+  else {
     gat.setURLQueryParam("osm-url", currentOsmUrl);
     gat.setURLQueryParam("file-name", currentFileName);
     
@@ -292,6 +358,9 @@ function draw(saveFlag){
       controlIconsEnabled: true,
       onZoom: function(){
         setZoom(panZoomSVG.getZoom(), true);
+        // pan is changing with each zoom
+        let pan = panZoomSVG.getPan();
+        setPan([pan.x, pan.y], true);
       },
       onPan: function(){
         let pan = panZoomSVG.getPan();
@@ -303,8 +372,12 @@ function draw(saveFlag){
     let panX = drawRulesInputJson[0]["pan"][0] / drawRulesInputJson[0]["canvas size"][0] * svgDiv.element.clientWidth;
     let panY = drawRulesInputJson[0]["pan"][1] / drawRulesInputJson[0]["canvas size"][1] * svgDiv.element.clientHeight;
 
-    panZoomSVG.zoom(drawRulesInputJson[0]["zoom"]);
-    panZoomSVG.pan({x:panX, y:panY});
+    let zoom = drawRulesInputJson[0]["zoom"];
+    panZoomSVG.zoom(zoom);
+
+
+
+    panZoomSVG.pan({x:panX*zoom, y:panY*zoom});
 
     return;
   }
@@ -383,9 +456,6 @@ async function updateMapObj(callback, mapArrayBuffer){
       relations: {},
       counterNode: 0,
       counterWay: 0,
-
-      tagOverviewWay:{},
-      tagOverviewNode:{},
       
 
       mapPixelWidth: svgDiv.element.width,
@@ -441,7 +511,6 @@ async function updateMapObj(callback, mapArrayBuffer){
           y: y,
           tags: Object.entries(node.tags),
         }
-        countTag(map.tagOverviewNode, node.tags);
         map.counterNode++;
       },
       way: function(way){
@@ -451,7 +520,6 @@ async function updateMapObj(callback, mapArrayBuffer){
               nodeRefs: way.nodeRefs,
               tags: Object.entries(way.tags),
             }
-            countTag(map.tagOverviewWay, way.tags);
             map.counterWay++;
             return;
           }
@@ -482,24 +550,7 @@ async function updateMapObj(callback, mapArrayBuffer){
     return [x, y];
   }
 
-  function countTag(saveInObj, tagObj){
-    const tagsThatAreCounted = {
-      amenity:true, boundary:true, building:true, highway: true, landuse:true, natural:true, place:true, railway:true, waterway:true,
-    }
-    let tagArray = Object.entries(tagObj)
-    for(let tag of tagArray){
-      if(tagsThatAreCounted[tag[0]]){
-        if(saveInObj[tag[0]]===undefined){
-          saveInObj[tag[0]] = {};
-      }
-      if(saveInObj[tag[0]][tag[1]]===undefined){
-        saveInObj[tag[0]][tag[1]] = 1;
-      } else {
-        saveInObj[tag[0]][tag[1]]++;
-      }
-      }
-    }
-  }
+  
 }
 
 
