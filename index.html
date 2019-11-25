@@ -13,7 +13,6 @@
 <script>
 
 let map;
-let startText;
 let drawRulesInputJson;
 let currentFileName;
 let currentOsmUrl;
@@ -34,8 +33,7 @@ const localFileNames = [
 
 if(gat.getURLQueryParam("settings") !== null && gat.getURLQueryParam("file-name") !== null && gat.getURLQueryParam("osm-url") !== null){
   
-  startText = gat.getURLQueryParam("settings");
-  startText = startText.replace(/%23/g, "#")
+  drawRulesInputJson = text2DrawRules(gat.getURLQueryParam("settings"));
 
   currentFileName = gat.getURLQueryParam("file-name");
   currentOsmUrl = gat.getURLQueryParam("osm-url");
@@ -43,65 +41,174 @@ if(gat.getURLQueryParam("settings") !== null && gat.getURLQueryParam("file-name"
   // check if file-name is locally available
   if(localFileNames.indexOf(currentFileName) === -1){
     drawFirstMapFromUrlWithFileInput = true;
-    
   }
 }
 else {
   currentFileName = "monaco-latest.osm.pbf";
   currentOsmUrl = "https://www.openstreetmap.org/#map=18/43.73374/7.41638";
-  startText = 
-`[{
- "canvas size": [1000,1000],
- "zoom": 2.2108,
- "pan": [361.4961,-1003.5468],
- "background": "#005000"
-},
-{
- "stroke color": "#707070",
- "line width": 2,
- "type": "way",
- "tags": [
-  ["highway","primary"],
-  ["highway","residential"],
-  ["highway","path"]
- ]
-},
-{
- "stroke color": "#a0a0a0",
- "fill color": "#a0a0a0",
- "line width": 2,
- "type": "way",
- "tags": [
-   ["building","*"]
- ]
-},
-{
- "fill color": "#008000",
- "type": "node",
- "size": 20,
- "tags": [
-  ["natural", "tree"]
- ]
-},
-{
- "stroke color": "#ff0000",
- "line width": 5,
- "type": "way",
- "tags": [
-  ["railway", "*"]
- ]
-},
-{
- "stroke color": "#2020a0",
- "fill color": "#2020a0",
- "line width": 2,
- "type": "way",
- "tags": [
-   ["place","*"]
- ]
-}]`
+  drawRulesInputJson = [{
+    //"filename": "monaco",
+    //"osmUrl" zoomlevel, midLat, midLon
+
+    //TODO:
+    // wie oben filename, zoomLevel, midLat und midLon hinzufügen aber nicht zur textarea.
+    // die drawRule überarbeiten so dass sie erstmal final ist. Wie ist das mit multiple colors? vllt das als erstes machen?
+    // dann urlStr erstellen aus "val1 val2 val3 ... [val1 val2 val3] ... " dafür müsste es eine klare Reihenfolge geben und leere Werte representiert werden.
+    "canvas size": [1000,1000],
+    "zoom": 2.2108,
+    "pan": [361.4961,-1003.5468],
+    "background": "#005000"
+    },
+    {
+      "ways": [
+        ["highway","primary"],
+        ["highway","residential"],
+        ["highway","path"]
+      ],
+      "stroke color": ["#707070"],
+      "line width": 2,
+    },
+    {
+    "stroke color": "#a0a0a0",
+    "fill color": ["#a0a0a0", "#ff5555"],
+    "line width": 2,
+    "type": "way",
+    "ways": ["building","*"],
+    },
+    {
+      "nodes": [
+        ["natural", "tree"]
+      ],
+      "fill color": "#008000",
+      "size": 20,
+      "node style": "M-1 -1 L1 1 L1 0 L0 1",
+    },
+    {
+      "ways": [
+        ["railway", "*"]
+      ],
+      "stroke color": "#ff0000",
+      "line width": 5,
+    },
+    {
+      "ways": [
+        ["place","*"]
+      ],
+      "stroke color": "#2020a0",
+      "fill color": "#2020a0",
+      "line width": 2,
+  }]
+
+  drawRulesInputJson = text2DrawRules(JSON.stringify(drawRulesInputJson))
 }
 
+function drawRule2Text(drawRules){
+  let str = "[{\n";
+  for(let ruleIndex in drawRules){
+    let rule = drawRules[ruleIndex];
+    if(ruleIndex == 0){
+      str += addArray(rule, "canvas size", ",\n")
+      str += addValue(rule, "zoom", ",\n");
+      str += addArray(rule, "pan", ",\n")
+      str += addString(rule, "background", "\n");
+    } else {
+      str += ",\n{\n";
+      str += addTagArray(rule, "ways", ",\n");
+      str += addTagArray(rule, "nodes", ",\n");
+      str += addColor(rule, "stroke color", ",\n");
+      str += addColor(rule, "fill color", ",\n");
+      str += addValue(rule, "line width", ",\n");
+      str += addValue(rule, "size", ",\n");
+      str += addString(rule, "node style", ",\n");
+      str = str.substr(0, str.length-2) + "\n";
+    }
+    str += "}"
+  }
+
+  str+= "]"
+  
+  return str;
+
+  function addString(rule, name, endString){
+    if(rule[name] === undefined) return "";
+    return " \"" + name + "\": \"" + rule[name] + "\"" + endString;
+  }
+
+  function addValue(rule, name, endString){
+    if(rule[name] === undefined) return "";
+    return " \"" + name + "\": " + rule[name] + endString;
+  }
+
+  function addArray(rule, name, endString){
+    if(rule[name] === undefined) return "";
+    return " \"" + name + "\": [" + rule[name] + "]" + endString;
+  }
+
+  function addColor(rule, name, endString){
+    if(rule[name] === undefined) return "";
+    //console.log(rule)
+    if(rule[name].length === 1){
+      //return addString(rule[0], name, endString);
+      return " \"" + name + "\": \"" + rule[name][0] + "\"" + endString;
+    }
+    let str = " \"" + name + "\": [\n";
+    for(let i in rule[name]){
+      str += "  \"" + rule[name][i] + "\",\n";
+    }
+    str = str.substr(0, str.length-2) + "\n";
+    str += " ]" + endString;
+    return str;
+  }
+
+  function addTagArray(rule, name, endString){
+    if(rule[name].length === 0) return "";
+    
+    if(rule[name].length === 1){
+      return " \"" + name + "\": [\"" + rule[name][0][0] + "\", \"" + rule[name][0][1] + "\"]" + endString;
+    }
+    let str = " \"" + name + "\": [\n";
+    for(let tagIndex in rule[name]){
+      let tag = rule[name][tagIndex];
+      str += "  [\"" + tag[0] + "\", \"" + tag[1] + "\"],\n";
+    }
+    str = str.substr(0, str.length-2) + "\n";
+    str += " ]" + endString;
+    return str;
+  }
+}
+
+function text2DrawRules(text){
+  let drawSettings =  JSON.parse(text);
+
+  for(drawRule of drawSettings){
+
+    if(typeof(drawRule["stroke color"]) === "string"){
+      drawRule["stroke color"] = [drawRule["stroke color"]]
+    }
+
+    if(typeof(drawRule["fill color"]) === "string"){
+      drawRule["fill color"] = [drawRule["fill color"]]
+    }
+
+    if(drawRule.ways === undefined){ 
+      drawRule.ways = [];
+    } else {
+      if(typeof(drawRule.ways[0]) === "string"){
+        drawRule.ways = [drawRule.ways]
+      }
+    }
+    
+    if(drawRule.nodes === undefined){ 
+      drawRule.nodes = [];
+    } else {
+      if(typeof(drawRule.nodes[0]) === "string"){
+        drawRule.nodes = [drawRule.nodes]
+      }
+    }
+    
+  }
+  return drawSettings;
+}
 
 const uiObj = setUpGui();
 
@@ -119,11 +226,7 @@ window.addEventListener("keyup", (event) => {
   }
 });
 
-if(drawFirstMapFromUrlWithFileInput === false){
-  drawRulesInputJson = JSON.parse(uiObj.textarea.value);
-  updateMapObj(draw);
-}
-else {
+if(drawFirstMapFromUrlWithFileInput){
   uploadButton = gat.addLoaderText();
   uploadButton.innerText = "The file: \"" + currentFileName + "\" is needed for the map. You can go to https://download.geofabrik.de, download it and then click here to use it."
   uploadButton.onclick = function(){
@@ -131,7 +234,21 @@ else {
     gat.removeLoaderText();
   }
 }
+else {
+  drawRulesInputJson = text2DrawRules(uiObj.textarea.value);
+  updateMapObj(draw);  
+}
 
+
+// a = {
+//   "type":"node/way",
+//   "tags":"[building,*]/[[building,*],[highway,*]]",
+//   "stroke color": "#ff0000/[#ff0000,#00ff00]",
+//   "fill color": "#ff0000/[#ff0000,#00ff00]",
+//   "line width": "2",
+//   "size": "5",
+//   "node style": "M-1 -1 L1 1 L1 0 L0 1",
+// }
 
 
 function setUpGui(){
@@ -140,12 +257,12 @@ function setUpGui(){
   uiObj.addButton("new map", newOsmMap);
   uiObj.addButton("show tags", showAvailableTags);
 
-  let textarea = uiObj.addTextarea("map settings", startText, function(){});
+  let textarea = uiObj.addTextarea("map settings", drawRule2Text(drawRulesInputJson), function(){});
   textarea.rows = 40;
   textarea.style.fontSize = "medium";
   textarea.style.width="94%";
   textarea.autofocus = true;
-  uiObj.addFinishedTypingCallback(mapSettingsChanged, 600);
+  uiObj.addFinishedTypingCallback(mapSettingsChanged, 800);
 
   uiObj.addButton("save map", function(){
     gat.downloadText("map" + ".svg", draw(true));
@@ -250,7 +367,7 @@ function triggerFileInput(){
     currentFileName = this.files[0].name;
     let reader = new FileReader();
     reader.onload = function() {
-      drawRulesInputJson = JSON.parse(uiObj.textarea.value);
+      drawRulesInputJson = text2DrawRules(uiObj.textarea.value);
       updateMapObj(draw, this.result, currentOsmUrl);
     }
     reader.readAsArrayBuffer(this.files[0]);
@@ -263,7 +380,7 @@ function triggerFileInput(){
 function mapSettingsChanged(){
   currentSlectionStart = uiObj.textarea.selectionStart;
   try{
-    drawRulesInputJson = JSON.parse(uiObj.textarea.value);
+    drawRulesInputJson = text2DrawRules(uiObj.textarea.value);
     draw();
   }
   catch(error){
@@ -278,7 +395,7 @@ function setZoom(zoom, changeInTextareaAndURL){
   drawRulesInputJson[0]["zoom"] = zoom;
   if(changeInTextareaAndURL){
     uiObj.textarea.value = uiObj.textarea.value.replace(new RegExp(/"zoom": [+-]?\d+(\.\d+)?/), "\"zoom\": " + zoom)
-    gat.setURLQueryParam("settings", uiObj.textarea.value)
+    gat.setURLQueryParam("settings", JSON.stringify(drawRulesInputJson))
   }
 }
 
@@ -297,14 +414,12 @@ function setPan(pan, changeInTextareaAndURL){
   drawRulesInputJson[0]["pan"] = pan;
   if(changeInTextareaAndURL){
     uiObj.textarea.value = uiObj.textarea.value.replace(new RegExp(/"pan": \[[+-]?\d+(\.\d+)?\,[+-]?\d+(\.\d+)?\]/), "\"pan\": [" + pan[0]  + "," + pan[1] + "]")
-    gat.setURLQueryParam("settings", uiObj.textarea.value);
+    gat.setURLQueryParam("settings", JSON.stringify(drawRulesInputJson));
   }
 }
 
 function draw(saveFlag){
   if(saveFlag !== true){
-    gat.setURLQueryParam("settings", uiObj.textarea.value)
-    
     let mainSVG = document.getElementById("mainSVG");
     if(mainSVG !== null) mainSVG.remove();
     svgDiv.element.style.backgroundColor = drawRulesInputJson[0]["background"];
@@ -350,6 +465,7 @@ function draw(saveFlag){
     return ctx.svg()
   }
   else {
+    gat.setURLQueryParam("settings", JSON.stringify(drawRulesInputJson))
     gat.setURLQueryParam("osm-url", currentOsmUrl);
     gat.setURLQueryParam("file-name", currentFileName);
     
@@ -375,8 +491,6 @@ function draw(saveFlag){
     let zoom = drawRulesInputJson[0]["zoom"];
     panZoomSVG.zoom(zoom);
 
-
-
     panZoomSVG.pan({x:panX*zoom, y:panY*zoom});
 
     return;
@@ -387,9 +501,9 @@ function draw(saveFlag){
     for(xy of drawingSettings.orderedNodes[tag[0]][tag[1]]){
       let circle = ctx.circle(tagDrawSettings.size);
       circle.move(xy[0], xy[1]);
-      circle.fill(tagDrawSettings.fillColor);
+      circle.fill(tagDrawSettings.getNextFillColor());
       if(tagDrawSettings.strokeColor !== undefined){
-        circle.stroke({width: tagDrawSettings.lineWidth, color: tagDrawSettings.strokeColor})
+        circle.stroke({width: tagDrawSettings.lineWidth, color: tagDrawSettings.getNextStrokeColor()})
       }
     }
   }
@@ -417,8 +531,11 @@ function draw(saveFlag){
   function drawPolyline(polylinePoints, tagDrawSettings){
     if(polylinePoints.length>0){
       let polyline = ctx.polyline(polylinePoints);
-      polyline.fill(tagDrawSettings.fillColor);
-      polyline.stroke({width: tagDrawSettings.lineWidth, color: tagDrawSettings.strokeColor})
+      polyline.fill(tagDrawSettings.getNextFillColor());
+      polyline.stroke({
+        width: tagDrawSettings.lineWidth,
+        color: tagDrawSettings.getNextStrokeColor()
+      })
       polylinePoints = []
     }
   }
@@ -570,29 +687,44 @@ function getDrawingSettings(drawRulesInputJson){
     for(let drawRule of drawRulesInputJson){
       drawSettings = {
         strokeColor: drawRule["stroke color"],
-        lineWidth: drawRule["line width"],
         fillColor: drawRule["fill color"],
+        lineWidth: drawRule["line width"],
         size: drawRule["size"],
+        currentStrokeColor: 0,
+        currentFillColor: 0,
+
+        getNextStrokeColor: function(){
+          this.currentStrokeColor %= this.strokeColor.length;
+          return this.strokeColor[this.currentStrokeColor++];
+        },
+
+        getNextFillColor: function(){
+          this.currentFillColor %= this.fillColor.length;
+          return this.fillColor[this.currentFillColor++];
+        }
       }
-      if(drawSettings.fillColor === undefined) drawSettings.fillColor = "none";
-      if(drawRule.type === "way"){
-        for(let tag of drawRule.tags){
-          if(drawingSettings.drawRulesWays[tag[0]] === undefined){
-            drawingSettings.drawRulesWays[tag[0]] = {};
-          }
-          drawingSettings.drawRulesWays[tag[0]][tag[1]] = drawSettings;
-          drawingSettings.drawingOrder.push([tag[0], tag[1], "way"])
-        } 
-      } else if(drawRule.type === "node"){
-        for(let tag of drawRule.tags){
-          if(drawingSettings.drawRulesNodes[tag[0]] === undefined){
-            drawingSettings.drawRulesNodes[tag[0]] = {};
-          }
-          drawingSettings.drawRulesNodes[tag[0]][tag[1]] = drawSettings;
-          drawingSettings.drawingOrder.push([tag[0], tag[1], "node"])
-        } 
+
+      if(drawSettings.fillColor === undefined){
+        drawSettings.fillColor = ["none"];
       }
+
+      for(let tag of drawRule.ways){
+        if(drawingSettings.drawRulesWays[tag[0]] === undefined){
+          drawingSettings.drawRulesWays[tag[0]] = {};
+        }
+        drawingSettings.drawRulesWays[tag[0]][tag[1]] = drawSettings;
+        drawingSettings.drawingOrder.push([tag[0], tag[1], "way"])
+      }
+       
+      for(let tag of drawRule.nodes){
+        if(drawingSettings.drawRulesNodes[tag[0]] === undefined){
+          drawingSettings.drawRulesNodes[tag[0]] = {};
+        }
+        drawingSettings.drawRulesNodes[tag[0]][tag[1]] = drawSettings;
+        drawingSettings.drawingOrder.push([tag[0], tag[1], "node"])
+      } 
     }
+
     return drawingSettings;
   }
 
