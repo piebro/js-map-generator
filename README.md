@@ -18,8 +18,6 @@ An online tool to generate a custom map with custom rules with an osm dataset in
 
 - little shaking on redraw and pan != [0,0]
 
-- redraw only if the text in textarea really changed and not when the cursor is just moving
-
 ### feature
 
 - query e=exampleNumber; link to some predefined examples
