@@ -7,16 +7,17 @@
     <script src="svg.min.js"> </script>
     <script src="osm-read-pbf.js"> </script>
     <script src="svg-pan-zoom.js"> </script>
+    <script src="searchjs.js"> </script>
     <link rel="stylesheet" type="text/css" href="tool-gui.css">
 </head>
 <body>
 <script>
 
-let map;
-let drawRulesInputJson;
-let currentFileName;
-let currentOsmUrl;
-let drawFirstMapFromUrlWithFileInput = false;
+let loadedNodes;
+let loadedWays;
+let currentDrawRules;
+let currentMapInfo = {};
+
 
 const mapAreaWidthDegreeAddition = 0.004;
 const localFileNames = [
@@ -31,78 +32,71 @@ const localFileNames = [
 ]
 
 
-if(gat.getURLQueryParam("settings") !== null && gat.getURLQueryParam("file-name") !== null && gat.getURLQueryParam("osm-url") !== null){
-  
-  drawRulesInputJson = text2DrawRules(gat.getURLQueryParam("settings"));
+if(true || gat.getURLQueryParam("s") === null || gat.getURLQueryParam("m") === null){
+  currentDrawRules = [
+    {
+      "canvas size": [1000,1000],
+      "zoom": 1,
+      "pan": [0,0],
+      "background": "#005000"
+    },
+    {
+      "nodes": {
+        "natural": "tree"
+      },
+      "ways": {
+        "highway": ["primary", "secondary"]
+      },
+      "stroke color": ["#707070"],
+      "line width": 20,
+      "size": 50,
+    }
+  ];
+  currentMapInfo.fileName = "monaco-latest.osm.pbf";
+  currentMapInfo.zoomLevel = 18;
+  currentMapInfo.midLat = 43.73374;
+  currentMapInfo.midLon = 7.41638;
+  updateURLWithMapInfo();
+  updateUrlWithDrawRule();
+}
 
-  currentFileName = gat.getURLQueryParam("file-name");
-  currentOsmUrl = gat.getURLQueryParam("osm-url");
+updateDrawRulesWithURL();
+updateMapInfoWithURL();
 
-  // check if file-name is locally available
-  if(localFileNames.indexOf(currentFileName) === -1){
-    drawFirstMapFromUrlWithFileInput = true;
+const uiObj = setUpGui();
+const svgDiv = new gat.CenteredElement("div", [1000,1000], {borderAlpha:0.96});
+svgDiv.element.style.backgroundColor="#ffffff";
+uiObj.canvasDiv.appendChild(svgDiv.element);
+svgDiv.resize();
+
+window.addEventListener("resize", draw);
+
+window.addEventListener("keyup", (event) => {
+  if (document.activeElement.tagName == "TEXTAREA" || document.activeElement.tagName == "INPUT") return
+  if(event.key === "s"){
+    gat.downloadText("map" + ".svg", draw(true));
+  }
+});
+
+startDrawing();
+
+
+function startDrawing(){
+  if(localFileNames.indexOf(currentMapInfo.fileName) === -1){
+    uploadButton = gat.addLoaderText();
+    uploadButton.innerText = "The file: \"" + currentMapInfo.fileName + "\" is needed for the map. You can go to https://download.geofabrik.de, download it and then click here to use it."
+    uploadButton.onclick = function(){
+      triggerFileInput();
+      gat.removeLoaderText();
+    }
+  }
+  else {
+    updateMapObj(draw, undefined, "maps/" + currentMapInfo.fileName);  
   }
 }
-else {
-  currentFileName = "monaco-latest.osm.pbf";
-  currentOsmUrl = "https://www.openstreetmap.org/#map=18/43.73374/7.41638";
-  drawRulesInputJson = [{
-    //"filename": "monaco",
-    //"osmUrl" zoomlevel, midLat, midLon
 
-    //TODO:
-    // wie oben filename, zoomLevel, midLat und midLon hinzufügen aber nicht zur textarea.
-    // die drawRule überarbeiten so dass sie erstmal final ist. Wie ist das mit multiple colors? vllt das als erstes machen?
-    // dann urlStr erstellen aus "val1 val2 val3 ... [val1 val2 val3] ... " dafür müsste es eine klare Reihenfolge geben und leere Werte representiert werden.
-    "canvas size": [1000,1000],
-    "zoom": 2.2108,
-    "pan": [361.4961,-1003.5468],
-    "background": "#005000"
-    },
-    {
-      "ways": [
-        ["highway","primary"],
-        ["highway","residential"],
-        ["highway","path"]
-      ],
-      "stroke color": ["#707070"],
-      "line width": 2,
-    },
-    {
-    "stroke color": "#a0a0a0",
-    "fill color": ["#a0a0a0", "#ff5555"],
-    "line width": 2,
-    "type": "way",
-    "ways": ["building","*"],
-    },
-    {
-      "nodes": [
-        ["natural", "tree"]
-      ],
-      "fill color": "#008000",
-      "size": 20,
-      "node style": "M-1 -1 L1 1 L1 0 L0 1",
-    },
-    {
-      "ways": [
-        ["railway", "*"]
-      ],
-      "stroke color": "#ff0000",
-      "line width": 5,
-    },
-    {
-      "ways": [
-        ["place","*"]
-      ],
-      "stroke color": "#2020a0",
-      "fill color": "#2020a0",
-      "line width": 2,
-  }]
 
-  drawRulesInputJson = text2DrawRules(JSON.stringify(drawRulesInputJson))
-}
-
-function drawRule2Text(drawRules){
+function drawRule2FormattedText(drawRules){
   let str = "[{\n";
   for(let ruleIndex in drawRules){
     let rule = drawRules[ruleIndex];
@@ -113,8 +107,8 @@ function drawRule2Text(drawRules){
       str += addString(rule, "background", "\n");
     } else {
       str += ",\n{\n";
-      str += addTagArray(rule, "ways", ",\n");
-      str += addTagArray(rule, "nodes", ",\n");
+      str += addRuleNodes(rule);
+      str += addRuleWays(rule);
       str += addColor(rule, "stroke color", ",\n");
       str += addColor(rule, "fill color", ",\n");
       str += addValue(rule, "line width", ",\n");
@@ -146,9 +140,7 @@ function drawRule2Text(drawRules){
 
   function addColor(rule, name, endString){
     if(rule[name] === undefined) return "";
-    //console.log(rule)
     if(rule[name].length === 1){
-      //return addString(rule[0], name, endString);
       return " \"" + name + "\": \"" + rule[name][0] + "\"" + endString;
     }
     let str = " \"" + name + "\": [\n";
@@ -160,27 +152,20 @@ function drawRule2Text(drawRules){
     return str;
   }
 
-  function addTagArray(rule, name, endString){
-    if(rule[name].length === 0) return "";
-    
-    if(rule[name].length === 1){
-      return " \"" + name + "\": [\"" + rule[name][0][0] + "\", \"" + rule[name][0][1] + "\"]" + endString;
-    }
-    let str = " \"" + name + "\": [\n";
-    for(let tagIndex in rule[name]){
-      let tag = rule[name][tagIndex];
-      str += "  [\"" + tag[0] + "\", \"" + tag[1] + "\"],\n";
-    }
-    str = str.substr(0, str.length-2) + "\n";
-    str += " ]" + endString;
-    return str;
+  function addRuleNodes(rule){
+    if(rule.nodes === undefined) return "";
+    return " \"nodes\": " + JSON.stringify(rule.nodes, undefined, 1).replace(/\n/g, "\n ") + ",\n";
+  }
+
+  function addRuleWays(rule){
+    if(rule.ways === undefined) return "";
+    return " \"ways\": " + JSON.stringify(rule.ways, undefined, 1).replace(/\n/g, "\n ") + ",\n";
   }
 }
 
-function text2DrawRules(text){
-  let drawSettings =  JSON.parse(text);
-
-  for(drawRule of drawSettings){
+function updateDrawRulesWithTextarea(){
+  let drawRules =  JSON.parse(uiObj.textarea.value);
+  for(drawRule of drawRules){
 
     if(typeof(drawRule["stroke color"]) === "string"){
       drawRule["stroke color"] = [drawRule["stroke color"]]
@@ -189,67 +174,95 @@ function text2DrawRules(text){
     if(typeof(drawRule["fill color"]) === "string"){
       drawRule["fill color"] = [drawRule["fill color"]]
     }
+  }
+  currentDrawRules = drawRules;
+}
 
-    if(drawRule.ways === undefined){ 
-      drawRule.ways = [];
-    } else {
-      if(typeof(drawRule.ways[0]) === "string"){
-        drawRule.ways = [drawRule.ways]
-      }
-    }
+function updateDrawRulesWithURL(){
+  let text = gat.getURLQueryParam("s");
+  currentDrawRules = JSON.parse(text);
+}
+
+function updateUrlWithDrawRule(){
+  // let drawRules = currentDrawRules;
+  // let settings = [
+  //   ...drawRules[0]["canvas size"],
+  //   drawRules[0]["zoom"],
+  //   ...drawRules[0]["pan"],
+  //   drawRules[0]["background"],
+  // ]
+  // let drawRulesArray = [];
+  // for(let i=1; i<drawRules.length; i++){
+  //   let drawRule = drawRules[i];
+  //   let drawRuleArray = [];
     
-    if(drawRule.nodes === undefined){ 
-      drawRule.nodes = [];
-    } else {
-      if(typeof(drawRule.nodes[0]) === "string"){
-        drawRule.nodes = [drawRule.nodes]
-      }
-    }
+  //   if(drawRule.nodes === undefined) drawRuleArray.push("")  
+  //   else drawRuleArray.push(JSON.stringify(drawRule.nodes))
     
-  }
-  return drawSettings;
+  //   if(drawRule.ways === undefined) drawRuleArray.push("")
+  //   else drawRuleArray.push(JSON.stringify(drawRule.ways))
+
+  //   if(drawRule["stroke color"] === undefined) drawRuleArray.push("")
+  //   else drawRuleArray.push(JSON.stringify(drawRule["stroke color"]).replace(/#/g, ""))
+
+  //   if(drawRule["fill color"] === undefined) drawRuleArray.push("")
+  //   else drawRuleArray.push(JSON.stringify(drawRule["fill color"]).replace(/#/g, ""))
+
+  //   if(drawRule["line width"] === undefined) drawRuleArray.push("")
+  //   else drawRuleArray.push(drawRule["line width"])
+
+  //   if(drawRule["size"] === undefined) drawRuleArray.push("")
+  //   else drawRuleArray.push(drawRule["size"])
+
+  //   if(drawRule["node style"] === undefined) drawRuleArray.push("")
+  //   else drawRuleArray.push(drawRule["node style"])
+
+  //   drawRulesArray.push(...drawRuleArray);
+  // }
+
+  // let drawRulesStr = drawRulesArray.join(" ").replace(/:/, "!");//.replace(/"/g, "");
+  // //console.log(drawRulesStr)
+  // drawRulesStr = drawRulesStr.replace(/"/g, "");
+  // console.log(drawRulesStr)
+  // let re = /[a-z0-9]+/gi
+  
+  // let indices = [];
+  // while((match = re.exec(drawRulesStr)) !== null){
+  //   let start = match.index;
+  //   let end = match.index + match[0].length;
+  //   indices.push(start);
+  //   indices.push(end);
+  //   //drawRulesStr = drawRulesStr.slice(0,start) + "\"" + drawRulesStr.slice(start, end) + "\"" + drawRulesStr.slice(end)
+  //   //console.log(match[0], match.index)
+  // }
+  // let newDrawRuleStr = "";
+  // for(let i=1; i<indices.length; i++){
+  //   let lastIndex = indices[i-1];
+  //   let index = indices[i];
+  //   newDrawRuleStr += 
+  // }
+
+  //console.log(newDrawRuleStr)
+  //console.log(drawRulesStr)
+  
+  // let urlStr = settings.join(" ") + " " + drawRulesStr;
+  gat.setURLQueryParam("s", JSON.stringify(currentDrawRules));
+}
+function updateMapInfoWithURL(){
+  mapInfoArray = gat.getURLQueryParam("m").split(" ");
+  currentMapInfo.fileName = mapInfoArray[0];
+  currentMapInfo.zoomLevel = parseInt(mapInfoArray[1]);
+  currentMapInfo.midLat = parseFloat(mapInfoArray[2]);
+  currentMapInfo.midLon = parseFloat(mapInfoArray[3]);
 }
 
-const uiObj = setUpGui();
-
-const svgDiv = new gat.CenteredElement("div", [1000,1000], {borderAlpha:0.96});
-svgDiv.element.style.backgroundColor="#ffffff";
-uiObj.canvasDiv.appendChild(svgDiv.element);
-svgDiv.resize();
-
-window.addEventListener("resize", draw);
-
-window.addEventListener("keyup", (event) => {
-  if (document.activeElement.tagName == "TEXTAREA" || document.activeElement.tagName == "INPUT") return
-  if(event.key === "s"){
-    gat.downloadText("map" + ".svg", draw(true));
-  }
-});
-
-if(drawFirstMapFromUrlWithFileInput){
-  uploadButton = gat.addLoaderText();
-  uploadButton.innerText = "The file: \"" + currentFileName + "\" is needed for the map. You can go to https://download.geofabrik.de, download it and then click here to use it."
-  uploadButton.onclick = function(){
-    triggerFileInput();
-    gat.removeLoaderText();
-  }
+function updateURLWithMapInfo(){
+  gat.setURLQueryParam("m", [
+    currentMapInfo.fileName,
+    currentMapInfo.zoomLevel,
+    currentMapInfo.midLat,
+    currentMapInfo.midLon].join(" "))
 }
-else {
-  drawRulesInputJson = text2DrawRules(uiObj.textarea.value);
-  updateMapObj(draw);  
-}
-
-
-// a = {
-//   "type":"node/way",
-//   "tags":"[building,*]/[[building,*],[highway,*]]",
-//   "stroke color": "#ff0000/[#ff0000,#00ff00]",
-//   "fill color": "#ff0000/[#ff0000,#00ff00]",
-//   "line width": "2",
-//   "size": "5",
-//   "node style": "M-1 -1 L1 1 L1 0 L0 1",
-// }
-
 
 function setUpGui(){
   let uiObj = new gat.ui();
@@ -257,7 +270,7 @@ function setUpGui(){
   uiObj.addButton("new map", newOsmMap);
   uiObj.addButton("show tags", showAvailableTags);
 
-  let textarea = uiObj.addTextarea("map settings", drawRule2Text(drawRulesInputJson), function(){});
+  let textarea = uiObj.addTextarea("map settings", drawRule2FormattedText(currentDrawRules), function(){});
   textarea.rows = 40;
   textarea.style.fontSize = "medium";
   textarea.style.width="94%";
@@ -278,9 +291,9 @@ function setUpGui(){
   }
 
   function getCurrentVisibleTags(){
-    let size = drawRulesInputJson[0]["canvas size"];
-    let zoom = drawRulesInputJson[0]["zoom"];
-    let pan = drawRulesInputJson[0]["pan"];
+    let size = currentDrawRules[0]["canvas size"];
+    let zoom = currentDrawRules[0]["zoom"];
+    let pan = currentDrawRules[0]["pan"];
     
     let border = [
       - pan[0],
@@ -290,31 +303,32 @@ function setUpGui(){
     ]
 
     let nodeTags = {}
-    for(let node of Object.entries(map.nodes)){
-      if(node[1].x>=border[0] && node[1].y>=border[1] && node[1].x<=border[2] && node[1].y<=border[3]){
-        countTag(nodeTags, node[1].tags)
+    for(let node of loadedNodes){
+      if(node.x>=border[0] && node.y>=border[1] && node.x<=border[2] && node.y<=border[3]){
+        countTag(nodeTags, node)
       }
     }
 
     let wayTags = {}
-    for(let way of Object.entries(map.ways)){
-      for(let nodeId of way[1].nodeRefs){
-        let node = map.nodes[nodeId];
-        if(node !== undefined && node.x>=border[0] && node.y>=border[1] && node.x<=border[2] && node.y<=border[3]){
-          countTag(wayTags, way[1].tags)
-          continue;
+    for(let way of loadedWays){
+      for(let node of way.nodes){
+        if(node[0]>=border[0] && node[1]>=border[1] && node[0]<=border[2] && node[1]<=border[3]){
+          countTag(wayTags, way)
+          break;
         }
       }
     }
     return [nodeTags, wayTags];
   }
 
-  function countTag(saveInObj, tagArray){
+  function countTag(saveInObj, tagObj){
     const tagsThatAreCounted = {
       amenity:true, boundary:true, building:true, highway: true, landuse:true, natural:true, place:true, railway:true, waterway:true,
     }
-    //let tagArray = Object.entries(tagObj)
+    
+    let tagArray = Object.entries(tagObj)
     for(let tag of tagArray){
+      if(tag[0] === "x" || tag[0] === "y" || tag[0] === "nodes") continue;
       if(tagsThatAreCounted[tag[0]]){
         if(saveInObj[tag[0]]===undefined){
           saveInObj[tag[0]] = {};
@@ -343,20 +357,26 @@ function setUpGui(){
     }
   return stringOut;
   }
-}
 
+  function newOsmMap(){
+    let osmUrl = prompt("Enter the openstreetmap URL of the map you want to generate and then select the fitting .osm.pbf file you can download here: https://download.geofabrik.de", "");
+    if (osmUrl === null) {
+      console.log("no url given")
+      return;
+    }
+    setZoomAndPan(1, [0, 0]);
+    let zoomLevel, midLat, midLon;
+    let valueBeginIndex = osmUrl.search("#map") + 5;
+    [zoomLevel, midLat, midLon] = osmUrl.substr(valueBeginIndex).split("/").map(value => parseFloat(value));
 
-function newOsmMap(){
-  let osmURL = prompt("Enter the openstreetmap URL of the map you want to generate and then select the fitting .osm.pbf file you can download here: https://download.geofabrik.de", "");
-  if (osmURL === null) {
-    console.log("no url given")
-    return;
+    currentMapInfo.zoomLevel = zoomLevel;
+    currentMapInfo.midLat = midLat;
+    currentMapInfo.midLon = midLon;
+
+    triggerFileInput();
   }
-  setZoom(1, true);
-  setPan([0,0], true);
-  currentOsmUrl = osmURL;
-  triggerFileInput();
 }
+
 
 function triggerFileInput(){
   const fileInput = document.createElement("input");
@@ -364,11 +384,11 @@ function triggerFileInput(){
   fileInput.accept = ".pbf"
   
   fileInput.addEventListener("change", function(){
-    currentFileName = this.files[0].name;
+    currentMapInfo.fileName = this.files[0].name;
     let reader = new FileReader();
-    reader.onload = function() {
-      drawRulesInputJson = text2DrawRules(uiObj.textarea.value);
-      updateMapObj(draw, this.result, currentOsmUrl);
+    reader.onload = function(readerEvt) {
+      updateURLWithMapInfo();
+      updateMapObj(draw, this.result);
     }
     reader.readAsArrayBuffer(this.files[0]);
   }, false);
@@ -380,7 +400,8 @@ function triggerFileInput(){
 function mapSettingsChanged(){
   currentSlectionStart = uiObj.textarea.selectionStart;
   try{
-    drawRulesInputJson = text2DrawRules(uiObj.textarea.value);
+    updateDrawRulesWithTextarea()
+    updateUrlWithDrawRule();
     draw();
   }
   catch(error){
@@ -390,74 +411,83 @@ function mapSettingsChanged(){
   uiObj.textarea.setSelectionRange(currentSlectionStart, currentSlectionStart);
 }
 
-function setZoom(zoom, changeInTextareaAndURL){
+function setZoomAndPan(zoom, pan){
   zoom = Math.round(zoom*10000)/10000;
-  drawRulesInputJson[0]["zoom"] = zoom;
-  if(changeInTextareaAndURL){
-    uiObj.textarea.value = uiObj.textarea.value.replace(new RegExp(/"zoom": [+-]?\d+(\.\d+)?/), "\"zoom\": " + zoom)
-    gat.setURLQueryParam("settings", JSON.stringify(drawRulesInputJson))
-  }
-}
+  currentDrawRules[0]["zoom"] = zoom;
 
-function setPan(pan, changeInTextareaAndURL){
   // map to "canvas size" to get pan right no matter the actual client Size
-  pan[0] = pan[0] / svgDiv.element.clientWidth * drawRulesInputJson[0]["canvas size"][0];
-  pan[1] = pan[1] / svgDiv.element.clientHeight * drawRulesInputJson[0]["canvas size"][1];
+  pan[0] = pan[0] / svgDiv.element.clientWidth * currentDrawRules[0]["canvas size"][0];
+  pan[1] = pan[1] / svgDiv.element.clientHeight * currentDrawRules[0]["canvas size"][1];
 
-  pan[0] = pan[0] / drawRulesInputJson[0]["zoom"];
-  pan[1] = pan[1] / drawRulesInputJson[0]["zoom"];
+  pan[0] = pan[0] / currentDrawRules[0]["zoom"];
+  pan[1] = pan[1] / currentDrawRules[0]["zoom"];
   
   pan[0] = Math.round(pan[0]);
   pan[1] = Math.round(pan[1]);
 
+  currentDrawRules[0]["pan"] = pan;
 
-  drawRulesInputJson[0]["pan"] = pan;
-  if(changeInTextareaAndURL){
-    uiObj.textarea.value = uiObj.textarea.value.replace(new RegExp(/"pan": \[[+-]?\d+(\.\d+)?\,[+-]?\d+(\.\d+)?\]/), "\"pan\": [" + pan[0]  + "," + pan[1] + "]")
-    gat.setURLQueryParam("settings", JSON.stringify(drawRulesInputJson));
+  uiObj.textarea.value = uiObj.textarea.value
+  .replace(new RegExp(/"zoom": [+-]?\d+(\.\d+)?/), "\"zoom\": " + zoom)
+  .replace(new RegExp(/"pan": \[[+-]?\d+(\.\d+)?\,[+-]?\d+(\.\d+)?\]/), "\"pan\": [" + pan[0]  + "," + pan[1] + "]")
+
+  updateUrlWithDrawRule();
+}
+
+function getBetterDrawRule(drawRule){
+  newDrawRule = {
+    nodes: drawRule.nodes,
+    ways: drawRule.ways,
+    strokeColor: drawRule["stroke color"],
+    fillColor: drawRule["fill color"],
+    lineWidth: drawRule["line width"],
+    size: drawRule["size"],
+    currentStrokeColor: 0,
+    currentFillColor: 0,
+    
+
+    getNextStrokeColor: function(){
+      this.currentStrokeColor %= this.strokeColor.length;
+      return this.strokeColor[this.currentStrokeColor++];
+    },
+
+    getNextFillColor: function(){
+      this.currentFillColor %= this.fillColor.length;
+      return this.fillColor[this.currentFillColor++];
+    }
   }
+
+  if(newDrawRule.fillColor === undefined){
+    newDrawRule.fillColor = ["none"];
+  }
+
+  return newDrawRule;
 }
 
 function draw(saveFlag){
-  if(saveFlag !== true){
-    let mainSVG = document.getElementById("mainSVG");
-    if(mainSVG !== null) mainSVG.remove();
-    svgDiv.element.style.backgroundColor = drawRulesInputJson[0]["background"];
-    
-  }
+  let drawRules = currentDrawRules;
   
-  let size = drawRulesInputJson[0]["canvas size"];
-  svgDiv.size = size
+  svgDiv.element.style.backgroundColor = drawRules[0]["background"];
+  svgDiv.size = drawRules[0]["canvas size"];
 
   var ctx = SVG();
-  ctx.viewbox(0, 0, ...size)
-
+  ctx.viewbox(0, 0, ...drawRules[0]["canvas size"])
   ctx.node.id = "mainSVG";
   ctx.node.style="width:100%; height:100%"
   ctx.stroke({linecap: 'round', linejoin: 'round'})
 
   if(saveFlag === true){
-    let rect = ctx.rect(9*size[0], 9*size[1]);
-    rect.move(-4*size[0], -4*size[1])
-    rect.fill(drawRulesInputJson[0]["background"])
-    let scale = drawRulesInputJson[0]["zoom"];
-    let panX = drawRulesInputJson[0]["pan"][0];
-    let panY = drawRulesInputJson[0]["pan"][1]
-    ctx.transform({
-      a: scale, b: 0, c: 0, d: scale, e: panX*scale, f: panY*scale
-    })
+    initSaveSvg(ctx, drawRules)
   }
 
-  let drawingSettings = getDrawingSettings(drawRulesInputJson);
-
-  for(tag of drawingSettings.drawingOrder){
-    if(tag[2] === "way"){
-      if(drawingSettings.orderedWays[tag[0]] === undefined || drawingSettings.orderedWays[tag[0]][tag[1]] === undefined) continue;
-      drawWays(ctx, drawingSettings, tag);
+  for(let drawRule of drawRules){
+    drawRule = getBetterDrawRule(drawRule);
+    //console.log(drawRule.nodes)
+    if(drawRule.nodes !== undefined){
+      drawNodes(drawRule);
     }
-    else if(tag[2] === "node"){
-      if(drawingSettings.orderedNodes[tag[0]] === undefined || drawingSettings.orderedNodes[tag[0]][tag[1]] === undefined) continue;
-      drawNodes(ctx, drawingSettings, tag);
+    if(drawRule.ways !== undefined){
+      drawWays(drawRule); 
     }
   }
 
@@ -465,153 +495,136 @@ function draw(saveFlag){
     return ctx.svg()
   }
   else {
-    gat.setURLQueryParam("settings", JSON.stringify(drawRulesInputJson))
-    gat.setURLQueryParam("osm-url", currentOsmUrl);
-    gat.setURLQueryParam("file-name", currentFileName);
+    addToDom(ctx, drawRules)
+  }
+
+  function initSaveSvg(ctx, drawRules){
+    let size = drawRules[0]["canvas size"];
+    let rect = ctx.rect(9*size[0], 9*size[1]);
+    rect.move(-4*size[0], -4*size[1])
+    rect.fill(drawRules[0]["background"])
+    let scale = drawRules[0]["zoom"];
+    let panX = drawRules[0]["pan"][0];
+    let panY = drawRules[0]["pan"][1]
+    ctx.transform({
+      a: scale, b: 0, c: 0, d: scale, e: panX*scale, f: panY*scale
+    })
+  }
+
+  function drawNodes(drawRule){
+    let filteredNodes = SEARCHJS.matchArray(loadedNodes, drawRule.nodes)
+    for(node of filteredNodes){
+      let circle = ctx.circle(drawRule.size);
+      circle.move(node.x, node.y);
+      circle.fill(drawRule.getNextFillColor());
+      if(drawRule.strokeColor !== undefined){
+        circle.stroke({
+          width: drawRule.lineWidth,
+          color: drawRule.getNextStrokeColor()
+        })
+      }
+    }
+  }
+
+  function drawWays(drawRule){
+    let filteredWays = SEARCHJS.matchArray(loadedWays, drawRule.ways)
+    for(way of filteredWays){
+      let polyline = ctx.polyline(way.nodes);
+      polyline.fill(drawRule.getNextFillColor());
+      polyline.stroke({
+        width: drawRule.lineWidth,
+        color: drawRule.getNextStrokeColor()
+      })
+    }
+  }
+
+  function addToDom(ctx, drawRules){
+    let mainSVG = document.getElementById("mainSVG");
+    if(mainSVG !== null) mainSVG.remove();
     
     ctx.addTo(svgDiv.element);
     var panZoomSVG = svgPanZoom("#mainSVG", {
       controlIconsEnabled: true,
       onZoom: function(){
-        setZoom(panZoomSVG.getZoom(), true);
-        // pan is changing with each zoom
         let pan = panZoomSVG.getPan();
-        setPan([pan.x, pan.y], true);
+        setZoomAndPan(panZoomSVG.getZoom(), [pan.x, pan.y])
       },
       onPan: function(){
         let pan = panZoomSVG.getPan();
-        setPan([pan.x, pan.y], true);
+        setZoomAndPan(panZoomSVG.getZoom(), [pan.x, pan.y])
       },
     })
 
     // map to client size to get pan right no matter the actual client Size
-    let panX = drawRulesInputJson[0]["pan"][0] / drawRulesInputJson[0]["canvas size"][0] * svgDiv.element.clientWidth;
-    let panY = drawRulesInputJson[0]["pan"][1] / drawRulesInputJson[0]["canvas size"][1] * svgDiv.element.clientHeight;
+    let panX = drawRules[0]["pan"][0] / drawRules[0]["canvas size"][0] * svgDiv.element.clientWidth;
+    let panY = drawRules[0]["pan"][1] / drawRules[0]["canvas size"][1] * svgDiv.element.clientHeight;
+    let zoom = drawRules[0]["zoom"];
 
-    let zoom = drawRulesInputJson[0]["zoom"];
     panZoomSVG.zoom(zoom);
-
     panZoomSVG.pan({x:panX*zoom, y:panY*zoom});
-
-    return;
-  }
-
-  function drawNodes(ctx, drawingSettings, tag){
-    tagDrawSettings = drawingSettings.drawRulesNodes[tag[0]][tag[1]];
-    for(xy of drawingSettings.orderedNodes[tag[0]][tag[1]]){
-      let circle = ctx.circle(tagDrawSettings.size);
-      circle.move(xy[0], xy[1]);
-      circle.fill(tagDrawSettings.getNextFillColor());
-      if(tagDrawSettings.strokeColor !== undefined){
-        circle.stroke({width: tagDrawSettings.lineWidth, color: tagDrawSettings.getNextStrokeColor()})
-      }
-    }
-  }
-
-  function drawWays(ctx, drawingSettings, tag){
-    tagDrawSettings = drawingSettings.drawRulesWays[tag[0]][tag[1]];
-    for(nodeRefs of drawingSettings.orderedWays[tag[0]][tag[1]]){
-      let beginPath = true;
-      let polylinePoints = [];
-      for(nodeId of nodeRefs){
-        if(map.nodes[nodeId] == undefined){
-          beginPath = true;
-          continue;
-        } else if(beginPath == true){
-          drawPolyline(polylinePoints, tagDrawSettings)
-          beginPath = false;
-        }
-        polylinePoints.push(map.nodes[nodeId].x);
-        polylinePoints.push(map.nodes[nodeId].y);
-      }
-      drawPolyline(polylinePoints, tagDrawSettings)
-    }
-  }
-
-  function drawPolyline(polylinePoints, tagDrawSettings){
-    if(polylinePoints.length>0){
-      let polyline = ctx.polyline(polylinePoints);
-      polyline.fill(tagDrawSettings.getNextFillColor());
-      polyline.stroke({
-        width: tagDrawSettings.lineWidth,
-        color: tagDrawSettings.getNextStrokeColor()
-      })
-      polylinePoints = []
-    }
   }
 }
 
 
-async function updateMapObj(callback, mapArrayBuffer){
-  let filePath;
-  //console.log(currentFileName)
-  if(localFileNames.indexOf(currentFileName) >- 1){
-    //console.log("server available map")
-    filePath = "maps/" + currentFileName;
-  }
-
-  loaderText = gat.addLoaderText();
-  
-  map = getEmptyMapWithBorders(currentOsmUrl);
-
+async function updateMapObj(callback, mapArrayBuffer, filePath){
+  let loaderText = gat.addLoaderText();
   loaderText.innerText = "loading ...";
+  
+  loadedNodes = [];
+  loadedWays = [];
 
   await pbfParser.parse(getpbfParser(callback, filePath, mapArrayBuffer));
 
-  function getEmptyMapWithBorders(osmURL){
-    let zoomlevel, midLat, midLon;
-    let valueBeginIndex = osmURL.search("#map") + 5;
-    [zoomlevel, midLat, midLon] = osmURL.substr(valueBeginIndex).split("/").map(value => parseFloat(value));
-
-    let widthLon = 360 / Math.pow(2, zoomlevel-1);
+  function getMapMetrics(mapInfo){
+    let widthLon = 360 / Math.pow(2, mapInfo.zoomLevel-1);
     let widthHeightRatio = svgDiv.element.height/svgDiv.element.width;
     let heightLat = widthLon*widthHeightRatio;
 
-    let map = {
-      nodes: {},
-      ways: {},
-      relations: {},
-      counterNode: 0,
-      counterWay: 0,
-      
-
+    let mapMetrics = {
       mapPixelWidth: svgDiv.element.width,
       mapPixelHeight: svgDiv.element.height,
       mapLonDelta: widthLon,
-      mapLonLeft: midLon - widthLon/2,
-      mapLatBottomDegree: midLat,
+      mapLonLeft: mapInfo.midLon - widthLon/2,
+      mapLatBottomDegree: mapInfo.midLat,
 
-      minLon: midLon - widthLon/2 - mapAreaWidthDegreeAddition,
-      minLat: midLat - heightLat/2 - mapAreaWidthDegreeAddition,
-      maxLon: midLon + widthLon/2 + mapAreaWidthDegreeAddition,
-      maxLat: midLat + heightLat/2 + mapAreaWidthDegreeAddition,
+      minLon: mapInfo.midLon - widthLon/2 - mapAreaWidthDegreeAddition,
+      minLat: mapInfo.midLat - heightLat/2 - mapAreaWidthDegreeAddition,
+      maxLon: mapInfo.midLon + widthLon/2 + mapAreaWidthDegreeAddition,
+      maxLat: mapInfo.midLat + heightLat/2 + mapAreaWidthDegreeAddition,
 
       canvasWidth: svgDiv.element.width,
       canvasHeight: svgDiv.element.height,
     }
 
     let borderXY = [
-      ...convertGeoToGlobalPixel(map, midLat - heightLat/2, midLon - widthLon/2),
-      ...convertGeoToGlobalPixel(map, midLat + heightLat/2, midLon + widthLon/2)
+      ...convertGeoToGlobalPixel(mapMetrics, mapInfo.midLat - heightLat/2, mapInfo.midLon - widthLon/2),
+      ...convertGeoToGlobalPixel(mapMetrics, mapInfo.midLat + heightLat/2, mapInfo.midLon + widthLon/2)
     ];
 
-    map.borderXY = borderXY;
-    map.width = borderXY[2] - borderXY[0];
-    map.height = borderXY[3] - borderXY[1];
+    mapMetrics.borderXY = borderXY;
+    mapMetrics.width = borderXY[2] - borderXY[0];
+    mapMetrics.height = borderXY[3] - borderXY[1];
 
-    return map;
+    return mapMetrics;
   }
 
   function getpbfParser(callback, filePath, mapArrayBuffer){
+
+    let nodeMap = {};
+    let nodeCounter = 0;
+    let wayCounter = 0;
+
+    let mapMetrics = getMapMetrics(currentMapInfo);
+
     return {
       filePath: filePath,
       buffer: mapArrayBuffer,
       interval: setInterval(function(){
-        loaderText.innerText = "loaded: " + map.counterNode + " ways and " + map.counterWay + " nodes";
+        loaderText.innerText = "loaded: " + nodeCounter + " ways and " + wayCounter + " nodes";
       }, 1000),
       startTime: Date.now(), 
       endDocument: function(){
-        
+
         clearInterval(this.interval)
         let millis = Date.now() - this.startTime;
         console.log(millis/1000, "seconds to load the selected area");
@@ -620,26 +633,31 @@ async function updateMapObj(callback, mapArrayBuffer){
         callback();
       },
       node: function(node){
-        if(node.lon<map.minLon || node.lat<map.minLat || node.lon>map.maxLon || node.lat>map.maxLat) return
+        if(node.lon<mapMetrics.minLon || node.lat<mapMetrics.minLat || node.lon>mapMetrics.maxLon || node.lat>mapMetrics.maxLat) return
 
-        [x, y] = convertGeoToCanvasPixel(map, node.lat, node.lon);
-        map.nodes[node.id] = {
-          x: x,
-          y: y,
-          tags: Object.entries(node.tags),
-        }
-        map.counterNode++;
+        [x, y] = convertGeoToCanvasPixel(mapMetrics, node.lat, node.lon);
+        nodeMap[node.id] = [x, y];
+        loadedNodes.push({
+          x: x, 
+          y: y, 
+          ...node.tags
+        })
+        nodeCounter++;
       },
       way: function(way){
+        let visibleNodes = []
         for(nodeKey of way.nodeRefs){
-          if(map.nodes[nodeKey]){
-            map.ways[way.id] = {
-              nodeRefs: way.nodeRefs,
-              tags: Object.entries(way.tags),
-            }
-            map.counterWay++;
-            return;
+          let node = nodeMap[nodeKey];
+          if(node !== undefined){
+            visibleNodes.push(node)
           }
+        }
+        if(visibleNodes.length > 0){
+          loadedWays.push({
+            nodes: visibleNodes,
+            ...way.tags
+          })
+          wayCounter++;
         }
       },
       relation: function(relation){},
@@ -650,143 +668,25 @@ async function updateMapObj(callback, mapArrayBuffer){
     }
   }
 
-  function convertGeoToCanvasPixel(map, lat, lon){
-    [x, y] = convertGeoToGlobalPixel(map, lat, lon);
-    x = (x-map.borderXY[0])/map.width * map.canvasWidth;
-    y = (y-map.borderXY[1])/map.height * map.canvasHeight;
-    y = -(y - map.canvasHeight/2) + map.canvasHeight/2;
+  function convertGeoToCanvasPixel(mapMetrics, lat, lon){
+    [x, y] = convertGeoToGlobalPixel(mapMetrics, lat, lon);
+    x = (x-mapMetrics.borderXY[0])/mapMetrics.width * mapMetrics.canvasWidth;
+    y = (y-mapMetrics.borderXY[1])/mapMetrics.height * mapMetrics.canvasHeight;
+    y = -(y - mapMetrics.canvasHeight/2) + mapMetrics.canvasHeight/2;
     return [x, y]
   }
 
-  function convertGeoToGlobalPixel(map, lat, lon){
-    let x = (lon - map.mapLonLeft) * (map.mapPixelWidth / map.mapLonDelta);
+  function convertGeoToGlobalPixel(mapMetrics, lat, lon){
+    let x = (lon - mapMetrics.mapLonLeft) * (mapMetrics.mapPixelWidth / mapMetrics.mapLonDelta);
     lat = lat * Math.PI / 180;
-    let worldMapWidth = ((map.mapPixelWidth / map.mapLonDelta) * 360) / (2 * Math.PI);
-    let mapOffsetY = (worldMapWidth / 2 * Math.log((1 + Math.sin(map.mapLatBottomDegree)) / (1 - Math.sin(map.mapLatBottomDegree))));
-    let y = map.mapPixelHeight - ((worldMapWidth / 2 * Math.log((1 + Math.sin(lat)) / (1 - Math.sin(lat)))) - mapOffsetY);
+    let worldMapWidth = ((mapMetrics.mapPixelWidth / mapMetrics.mapLonDelta) * 360) / (2 * Math.PI);
+    let mapOffsetY = (worldMapWidth / 2 * Math.log((1 + Math.sin(mapMetrics.mapLatBottomDegree)) / (1 - Math.sin(mapMetrics.mapLatBottomDegree))));
+    let y = mapMetrics.mapPixelHeight - ((worldMapWidth / 2 * Math.log((1 + Math.sin(lat)) / (1 - Math.sin(lat)))) - mapOffsetY);
     return [x, y];
   }
 
   
 }
-
-
-function getDrawingSettings(drawRulesInputJson){
-  let drawingSettings = getDrawingSettingsRulesAndOrder(drawRulesInputJson);
-
-  drawingSettings.orderedWays = getOrderedWays(drawingSettings);
-  drawingSettings.orderedNodes = getOrderedNodes(drawingSettings);
-  return drawingSettings;
-
-  function getDrawingSettingsRulesAndOrder(drawRulesInputJson){
-    let drawingSettings = {};
-    drawingSettings.drawRulesWays = {};
-    drawingSettings.drawRulesNodes = {};
-    drawingSettings.drawingOrder = [];
-
-    for(let drawRule of drawRulesInputJson){
-      drawSettings = {
-        strokeColor: drawRule["stroke color"],
-        fillColor: drawRule["fill color"],
-        lineWidth: drawRule["line width"],
-        size: drawRule["size"],
-        currentStrokeColor: 0,
-        currentFillColor: 0,
-
-        getNextStrokeColor: function(){
-          this.currentStrokeColor %= this.strokeColor.length;
-          return this.strokeColor[this.currentStrokeColor++];
-        },
-
-        getNextFillColor: function(){
-          this.currentFillColor %= this.fillColor.length;
-          return this.fillColor[this.currentFillColor++];
-        }
-      }
-
-      if(drawSettings.fillColor === undefined){
-        drawSettings.fillColor = ["none"];
-      }
-
-      for(let tag of drawRule.ways){
-        if(drawingSettings.drawRulesWays[tag[0]] === undefined){
-          drawingSettings.drawRulesWays[tag[0]] = {};
-        }
-        drawingSettings.drawRulesWays[tag[0]][tag[1]] = drawSettings;
-        drawingSettings.drawingOrder.push([tag[0], tag[1], "way"])
-      }
-       
-      for(let tag of drawRule.nodes){
-        if(drawingSettings.drawRulesNodes[tag[0]] === undefined){
-          drawingSettings.drawRulesNodes[tag[0]] = {};
-        }
-        drawingSettings.drawRulesNodes[tag[0]][tag[1]] = drawSettings;
-        drawingSettings.drawingOrder.push([tag[0], tag[1], "node"])
-      } 
-    }
-
-    return drawingSettings;
-  }
-
-  function getOrderedWays(drawingSettings){
-    let orderedWays = {}
-    for(let way of Object.entries(map.ways)){
-      for(let tag of way[1].tags){
-        let rule = drawingSettings.drawRulesWays[tag[0]];
-        if(rule !== undefined){
-          if(rule["*"] !== undefined){
-            if(orderedWays[tag[0]] === undefined){
-              orderedWays[tag[0]] = {};
-            }
-            if(orderedWays[tag[0]]["*"] === undefined){
-              orderedWays[tag[0]]["*"] = [];
-            }
-            orderedWays[tag[0]]["*"].push(way[1].nodeRefs);
-          } else if(rule[tag[1]] !== undefined){
-            if(orderedWays[tag[0]] === undefined){
-              orderedWays[tag[0]] = {};
-            }
-            if(orderedWays[tag[0]][tag[1]] === undefined){
-              orderedWays[tag[0]][tag[1]] = [];
-            }
-            orderedWays[tag[0]][tag[1]].push(way[1].nodeRefs);
-          }
-        }
-      }
-    }
-    return orderedWays;
-  }
-
-  function getOrderedNodes(drawingSettings){
-    let orderedNodes = {};
-    for(let node of Object.entries(map.nodes)){
-      for(let tag of node[1].tags){
-        let rule = drawingSettings.drawRulesNodes[tag[0]];
-        if(rule !== undefined){
-          if(rule["*"] !== undefined){
-            if(orderedNodes[tag[0]] === undefined){
-              orderedNodes[tag[0]] = {};
-            }
-            if(orderedNodes[tag[0]]["*"] === undefined){
-              orderedNodes[tag[0]]["*"] = [];
-            }
-            orderedNodes[tag[0]]["*"].push([node[1].x, node[1].y]);
-          } else if(rule[tag[1]] !== undefined){
-            if(orderedNodes[tag[0]] === undefined){
-              orderedNodes[tag[0]] = {};
-            }
-            if(orderedNodes[tag[0]][tag[1]] === undefined){
-              orderedNodes[tag[0]][tag[1]] = [];
-            }
-            orderedNodes[tag[0]][tag[1]].push([node[1].x, node[1].y]);
-          }
-        }
-      }
-    }
-    return orderedNodes;
-  }
-}
-
 
 
 </script>

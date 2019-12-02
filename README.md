@@ -26,15 +26,7 @@ An online tool to generate a custom map with custom rules with an osm dataset in
 
 ### feature
 
-- regex query for ways, e.g. all streets which name begins with an a?
-
-- color -> stroke color, fill color ?
-
-- do I want default values for some drawRule attributes?
-
 - a custom way to draw nodes, maybe a list with points around 0,0
-
-- compress json/string for the url
 
 ### testing
 
@@ -45,3 +37,5 @@ An online tool to generate a custom map with custom rules with an osm dataset in
 - code clean up and making everything maintainable
 
 - make code more efficieant, look how often which function is called and maybe if there are bugs calling funcitions to often.
+
+[//]: # (links: https://geoffboeing.com/2017/03/urban-form-figure-ground/)
