@@ -12,21 +12,17 @@ An online tool to generate a custom map with custom rules with an osm dataset in
 
 - add good and nice looking example (with links?)
 
-- find other relative small maps and add them as examples and then check in the link if the map is known and then use the known map from ther server instead of an upload
-
-- some images for dataIsBeatiful? (feature: more ways to select node/ways? with regex?)
+- some images for dataIsBeatiful?
 
 ### bug
 
-- the json error message is shown to often, maybe not as an alert or maybe only later as an alert
+- little shaking on redraw and pan != [0,0]
 
-- zoomed in 1.7131, changed value -> little jerking in the svg. Some rounding stuff?
-
-- there is an error with no stroke color
+- redraw only if the text in textarea really changed and not when the cursor is just moving
 
 ### feature
 
-- a custom way to draw nodes, maybe a list with points around 0,0
+- query e=exampleNumber; link to some predefined examples
 
 ### testing
 

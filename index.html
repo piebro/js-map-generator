@@ -32,7 +32,7 @@ const localFileNames = [
 ]
 
 
-if(true || gat.getURLQueryParam("s") === null || gat.getURLQueryParam("m") === null){
+if(gat.getURLQueryParam("s") === null || gat.getURLQueryParam("m") === null){
   currentDrawRules = [
     {
       "canvas size": [1000,1000],
@@ -50,6 +50,7 @@ if(true || gat.getURLQueryParam("s") === null || gat.getURLQueryParam("m") === n
       "stroke color": ["#707070"],
       "line width": 20,
       "size": 50,
+      "node style": "m1 1 L-1 -1"
     }
   ];
   currentMapInfo.fileName = "monaco-latest.osm.pbf";
@@ -184,70 +185,10 @@ function updateDrawRulesWithURL(){
 }
 
 function updateUrlWithDrawRule(){
-  // let drawRules = currentDrawRules;
-  // let settings = [
-  //   ...drawRules[0]["canvas size"],
-  //   drawRules[0]["zoom"],
-  //   ...drawRules[0]["pan"],
-  //   drawRules[0]["background"],
-  // ]
-  // let drawRulesArray = [];
-  // for(let i=1; i<drawRules.length; i++){
-  //   let drawRule = drawRules[i];
-  //   let drawRuleArray = [];
-    
-  //   if(drawRule.nodes === undefined) drawRuleArray.push("")  
-  //   else drawRuleArray.push(JSON.stringify(drawRule.nodes))
-    
-  //   if(drawRule.ways === undefined) drawRuleArray.push("")
-  //   else drawRuleArray.push(JSON.stringify(drawRule.ways))
-
-  //   if(drawRule["stroke color"] === undefined) drawRuleArray.push("")
-  //   else drawRuleArray.push(JSON.stringify(drawRule["stroke color"]).replace(/#/g, ""))
-
-  //   if(drawRule["fill color"] === undefined) drawRuleArray.push("")
-  //   else drawRuleArray.push(JSON.stringify(drawRule["fill color"]).replace(/#/g, ""))
-
-  //   if(drawRule["line width"] === undefined) drawRuleArray.push("")
-  //   else drawRuleArray.push(drawRule["line width"])
-
-  //   if(drawRule["size"] === undefined) drawRuleArray.push("")
-  //   else drawRuleArray.push(drawRule["size"])
-
-  //   if(drawRule["node style"] === undefined) drawRuleArray.push("")
-  //   else drawRuleArray.push(drawRule["node style"])
-
-  //   drawRulesArray.push(...drawRuleArray);
-  // }
-
-  // let drawRulesStr = drawRulesArray.join(" ").replace(/:/, "!");//.replace(/"/g, "");
-  // //console.log(drawRulesStr)
-  // drawRulesStr = drawRulesStr.replace(/"/g, "");
-  // console.log(drawRulesStr)
-  // let re = /[a-z0-9]+/gi
-  
-  // let indices = [];
-  // while((match = re.exec(drawRulesStr)) !== null){
-  //   let start = match.index;
-  //   let end = match.index + match[0].length;
-  //   indices.push(start);
-  //   indices.push(end);
-  //   //drawRulesStr = drawRulesStr.slice(0,start) + "\"" + drawRulesStr.slice(start, end) + "\"" + drawRulesStr.slice(end)
-  //   //console.log(match[0], match.index)
-  // }
-  // let newDrawRuleStr = "";
-  // for(let i=1; i<indices.length; i++){
-  //   let lastIndex = indices[i-1];
-  //   let index = indices[i];
-  //   newDrawRuleStr += 
-  // }
-
-  //console.log(newDrawRuleStr)
-  //console.log(drawRulesStr)
-  
-  // let urlStr = settings.join(" ") + " " + drawRulesStr;
   gat.setURLQueryParam("s", JSON.stringify(currentDrawRules));
 }
+
+
 function updateMapInfoWithURL(){
   mapInfoArray = gat.getURLQueryParam("m").split(" ");
   currentMapInfo.fileName = mapInfoArray[0];
@@ -275,13 +216,17 @@ function setUpGui(){
   textarea.style.fontSize = "medium";
   textarea.style.width="94%";
   textarea.autofocus = true;
-  uiObj.addFinishedTypingCallback(mapSettingsChanged, 800);
+  uiObj.addFinishedTypingCallback(mapSettingsChanged, 500);
 
   uiObj.addButton("save map", function(){
     gat.downloadText("map" + ".svg", draw(true));
   })
 
   uiObj.textarea = textarea;
+
+  let jsonErrorBtn = uiObj.addButton("json error", function(){});
+  jsonErrorBtn.style.display = "none";
+  jsonErrorBtn.style.color = "#ff0000";
 
   return uiObj;
 
@@ -400,19 +345,23 @@ function triggerFileInput(){
 function mapSettingsChanged(){
   currentSlectionStart = uiObj.textarea.selectionStart;
   try{
+    document.getElementById("json error").style.display = "none";
     updateDrawRulesWithTextarea()
-    updateUrlWithDrawRule();
-    draw();
   }
   catch(error){
-    alert(error)
+    document.getElementById("json error").style.display = "inline-block";
+    document.getElementById("json error").onclick = function(){
+      alert(error)
+    }
   }
+  updateUrlWithDrawRule();
+  draw();
   uiObj.textarea.focus();
   uiObj.textarea.setSelectionRange(currentSlectionStart, currentSlectionStart);
 }
 
 function setZoomAndPan(zoom, pan){
-  zoom = Math.round(zoom*10000)/10000;
+  zoom = Math.round(zoom*1000)/1000;
   currentDrawRules[0]["zoom"] = zoom;
 
   // map to "canvas size" to get pan right no matter the actual client Size
@@ -442,9 +391,10 @@ function getBetterDrawRule(drawRule){
     fillColor: drawRule["fill color"],
     lineWidth: drawRule["line width"],
     size: drawRule["size"],
+    nodeStyle: drawRule["node style"],
+
     currentStrokeColor: 0,
     currentFillColor: 0,
-    
 
     getNextStrokeColor: function(){
       this.currentStrokeColor %= this.strokeColor.length;
@@ -482,7 +432,6 @@ function draw(saveFlag){
 
   for(let drawRule of drawRules){
     drawRule = getBetterDrawRule(drawRule);
-    //console.log(drawRule.nodes)
     if(drawRule.nodes !== undefined){
       drawNodes(drawRule);
     }
@@ -514,12 +463,22 @@ function draw(saveFlag){
   function drawNodes(drawRule){
     let filteredNodes = SEARCHJS.matchArray(loadedNodes, drawRule.nodes)
     for(node of filteredNodes){
-      let circle = ctx.circle(drawRule.size);
-      circle.move(node.x, node.y);
-      circle.fill(drawRule.getNextFillColor());
+      let figure;
+      let lineWidth = drawRule.lineWidth;
+      if(drawRule.nodeStyle === undefined){
+        figure = ctx.circle(drawRule.size);
+        figure.move(node.x, node.y);
+      } else {
+        figure = ctx.path(drawRule.nodeStyle);
+        figure.move(node.x, node.y);
+        figure = figure.scale(drawRule.size, drawRule.size);
+        lineWidth = lineWidth / drawRule.size;
+      }
+      
+      figure.fill(drawRule.getNextFillColor());
       if(drawRule.strokeColor !== undefined){
-        circle.stroke({
-          width: drawRule.lineWidth,
+        figure.stroke({
+          width: lineWidth,
           color: drawRule.getNextStrokeColor()
         })
       }
@@ -531,10 +490,12 @@ function draw(saveFlag){
     for(way of filteredWays){
       let polyline = ctx.polyline(way.nodes);
       polyline.fill(drawRule.getNextFillColor());
-      polyline.stroke({
-        width: drawRule.lineWidth,
-        color: drawRule.getNextStrokeColor()
-      })
+      if(drawRule.strokeColor !== undefined){
+        polyline.stroke({
+          width: drawRule.lineWidth,
+          color: drawRule.getNextStrokeColor()
+        })
+      }
     }
   }
 
