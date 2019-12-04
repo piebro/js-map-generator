@@ -18,39 +18,65 @@ let loadedWays;
 let currentDrawRules;
 let currentMapInfo = {};
 
+const drawRulesURLReplacements = [
+  [/"ways":/g, "~0_", /~0_/g, "\"ways\":"],
+  [/"nodes":/g, "~1_", /~1_/g, "\"nodes\":"],
+  [/"stroke color":/g, "~2_", /~2_/g, "\"stroke color\":"],
+  [/"fill color":/g, "~3_", /~3_/g, "\"fill color\":"],
+  [/"line width":/g, "~4_", /~4_/g, "\"line width\":"],
+  [/"size":/g, "~5_", /~5_/g, "\"size\":"],
+  [/"node style":/g, "~6_", /~6_/g, "\"node style\":"]
+]
 
 const mapAreaWidthDegreeAddition = 0.004;
 const localFileNames = [
-  "monaco-latest.osm.pbf",
+  "monaco-latest.osm.pbf", //0.6 MB
   // https://www.openstreetmap.org/#map=18/43.73374/7.41638
-  "isle-of-man-latest.osm.pbf",
+  "isle-of-man-latest.osm.pbf", //2.4 MB
   // https://www.openstreetmap.org/#map=18/54.15007/-4.48207
-  "liechtenstein-latest.osm.pbf",
+  "liechtenstein-latest.osm.pbf", //2.3 MB
   // https://www.openstreetmap.org/relation/1155955#map=17/47.14617/9.51859
-  "seychelles-latest.osm.pbf",
+  "seychelles-latest.osm.pbf", //2.3 MB
   // https://www.openstreetmap.org/relation/536765#map=17/-4.62276/55.45097
 ]
 
 
-if(gat.getURLQueryParam("s") === null || gat.getURLQueryParam("m") === null){
-  currentDrawRules = [
-    {
-      "canvas size": [1000,1000],
-      "zoom": 1,
-      "pan": [0,0],
-      "background": "#005000"
+if(gat.getURLQueryParam("s") === null || gat.getURLQueryParam("m") === null || gat.getURLQueryParam("r") === null){
+  currentDrawRules = [{
+    "canvas size": [1000,1000],
+    "zoom": 1.1,
+    "pan": [-1006.2,203.8],
+    "background": "#e0e0e0"
     },
     {
-      "nodes": {
-        "natural": "tree"
-      },
-      "ways": {
-        "highway": ["primary", "secondary"]
-      },
-      "stroke color": ["#707070"],
-      "line width": 20,
-      "size": 20,
-      "node style": "m1 1 L-1 -1"
+    "ways": {"building": "yes"},
+    "fill color": ["#b0d0c0"],
+    "line width": 1
+    },
+    {
+    "ways": {"highway": "pedestrian"},
+    "stroke color": ["#c0c0f0"],
+    "line width": 20
+    },
+    {
+    "ways": {"highway": "footway"},
+    "stroke color": ["#b0b0b0"],
+    "line width": 20
+    },
+    {
+    "ways": {"highway": "residential"},
+    "stroke color": ["#809090"],
+    "line width": 20
+    },
+    {
+    "ways": {"highway": "secondary"},
+    "stroke color": ["#707070"],
+    "line width": 20
+    },
+    {
+    "ways": {"highway": "primary"},
+    "stroke color": ["#ff7070"],
+    "line width": 20
     }
   ];
   currentMapInfo.fileName = "monaco-latest.osm.pbf";
@@ -58,7 +84,7 @@ if(gat.getURLQueryParam("s") === null || gat.getURLQueryParam("m") === null){
   currentMapInfo.midLat = 43.73374;
   currentMapInfo.midLon = 7.41638;
   updateURLWithMapInfo();
-  updateUrlWithDrawRule();
+  updateURLWithDrawRule();
 }
 
 updateDrawRulesWithURL();
@@ -160,6 +186,10 @@ function drawRule2FormattedText(drawRules){
 
   function addRuleWays(rule){
     if(rule.ways === undefined) return "";
+    let objEntries = Object.entries(rule.ways)
+    if(objEntries.length === 1){
+      return " \"ways\": {\"" + objEntries[0][0] + "\": \"" + objEntries[0][1] + "\"},\n"
+    }
     return " \"ways\": " + JSON.stringify(rule.ways, undefined, 1).replace(/\n/g, "\n ") + ",\n";
   }
 }
@@ -179,15 +209,46 @@ function updateDrawRulesWithTextarea(){
   currentDrawRules = drawRules;
 }
 
+function updateURLWithDrawRule(){
+  updateURLWithDrawSettings();
+
+  let jsonStr = JSON.stringify(currentDrawRules.slice(1));
+  for(let replacement of drawRulesURLReplacements){
+    jsonStr = jsonStr.replace(replacement[0], replacement[1])
+  }
+  
+  let base64Str = btoa(jsonStr).replace(/=/g, "_").replace(/\+/g, "-");
+
+  gat.setURLQueryParam("r", base64Str);
+}
+
+function updateURLWithDrawSettings(){
+  let cdr = currentDrawRules[0];
+  let drawRulesSettings = [...cdr["canvas size"],cdr["zoom"], ...cdr["pan"], cdr["background"]].join(" ");
+  gat.setURLQueryParam("s", drawRulesSettings);
+}
+
 function updateDrawRulesWithURL(){
-  let text = gat.getURLQueryParam("s");
-  currentDrawRules = JSON.parse(text);
-}
+  let settingArray = gat.getURLQueryParam("s").split(" ");
+  drawRuleSettings = {
+    "canvas size": [parseInt(settingArray[0]),parseInt(settingArray[1])],
+    "zoom": parseFloat(settingArray[2]),
+    "pan": [parseFloat(settingArray[3]),parseFloat(settingArray[4])],
+    "background": settingArray[5]
+  }
 
-function updateUrlWithDrawRule(){
-  gat.setURLQueryParam("s", JSON.stringify(currentDrawRules));
-}
+  let base64Str = gat.getURLQueryParam("r").replace(/_/g, "=").replace(/-/g, "+");
+  let jsonStr = atob(base64Str);
 
+  for(let replacement of drawRulesURLReplacements){
+    jsonStr = jsonStr.replace(replacement[2], replacement[3])
+  }
+
+  currentDrawRules = [
+    drawRuleSettings,
+    ...JSON.parse(jsonStr)
+  ];
+}
 
 function updateMapInfoWithURL(){
   mapInfoArray = gat.getURLQueryParam("m").split(" ");
@@ -236,7 +297,7 @@ function setUpGui(){
 
   function showAvailableTags(){
     [nodeTags, wayTags] = getCurrentVisibleTags();
-    alert("Way Tags:" + getTagOverviewString(wayTags) + "\n\n\nNode Tags:" + getTagOverviewString(nodeTags))
+    alert("Look here:\nhttps://wiki.openstreetmap.org\n/wiki/Map_Features\nfor an overview of all tags\nWay Tags:" + getTagOverviewString(wayTags) + "\n\n\nNode Tags:" + getTagOverviewString(nodeTags))
   }
 
   function getCurrentVisibleTags(){
@@ -308,15 +369,15 @@ function setUpGui(){
   }
 
   function newOsmMap(){
-    let osmUrl = prompt("Enter the openstreetmap URL of the map you want to generate and then select the fitting .osm.pbf file you can download here: https://download.geofabrik.de", "");
-    if (osmUrl === null) {
+    let osmURL = prompt("Enter the openstreetmap URL of the map you want to generate and then select the fitting .osm.pbf file you can download here: https://download.geofabrik.de", "");
+    if (osmURL === null) {
       console.log("no url given")
       return;
     }
     setZoomAndPan(1, [0, 0]);
     let zoomLevel, midLat, midLon;
-    let valueBeginIndex = osmUrl.search("#map") + 5;
-    [zoomLevel, midLat, midLon] = osmUrl.substr(valueBeginIndex).split("/").map(value => parseFloat(value));
+    let valueBeginIndex = osmURL.search("#map") + 5;
+    [zoomLevel, midLat, midLon] = osmURL.substr(valueBeginIndex).split("/").map(value => parseFloat(value));
 
     currentMapInfo.zoomLevel = zoomLevel;
     currentMapInfo.midLat = midLat;
@@ -360,7 +421,7 @@ function mapSettingsChanged(){
       alert(error)
     }
   }
-  updateUrlWithDrawRule();
+  updateURLWithDrawRule();
   draw();
   uiObj.textarea.focus();
   uiObj.textarea.setSelectionRange(currentSlectionStart, currentSlectionStart);
@@ -386,7 +447,7 @@ function setZoomAndPan(zoom, pan){
   .replace(new RegExp(/"zoom": [+-]?\d+(\.\d+)?/), "\"zoom\": " + zoom)
   .replace(new RegExp(/"pan": \[[+-]?\d+(\.\d+)?\,[+-]?\d+(\.\d+)?\]/), "\"pan\": [" + pan[0]  + "," + pan[1] + "]")
 
-  updateUrlWithDrawRule();
+  updateURLWithDrawSettings();
 }
 
 function getBetterDrawRule(drawRule){
@@ -526,7 +587,7 @@ function draw(saveFlag){
     let panX = drawRules[0]["pan"][0] / drawRules[0]["canvas size"][0] * svgDiv.element.clientWidth;
     let panY = drawRules[0]["pan"][1] / drawRules[0]["canvas size"][1] * svgDiv.element.clientHeight;
     let zoom = drawRules[0]["zoom"];
-
+    
     panZoomSVG.zoom(zoom);
     panZoomSVG.pan({x:panX*zoom, y:panY*zoom});
   }

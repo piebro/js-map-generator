@@ -20,16 +20,12 @@ An online tool to generate a custom map with custom rules with an osm dataset in
 
 ### feature
 
-- query e=exampleNumber; link to some predefined examples
-
 ### testing
 
 - bigger maps and draw only some stuff on a bigger area, too slow?
 
 ### other
 
-- code clean up and making everything maintainable
-
-- make code more efficieant, look how often which function is called and maybe if there are bugs calling funcitions to often.
-
 [//]: # (links: https://geoffboeing.com/2017/03/urban-form-figure-ground/)
+
+### example links
