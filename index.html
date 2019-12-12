@@ -46,7 +46,10 @@ if(gat.getURLQueryParam("s") === null || gat.getURLQueryParam("m") === null || g
     "canvas size": [1000,1000],
     "zoom": 1.1,
     "pan": [-1006.2,203.8],
-    "background": "#e0e0e0"
+    "background": "#e0e0e0",
+    "auto draw": "true",
+    "grid": [4,4],
+    "grid position": [1,1]
     },
     {
     "ways": {"building": "yes"},
@@ -101,7 +104,7 @@ window.addEventListener("resize", draw);
 window.addEventListener("keyup", (event) => {
   if (document.activeElement.tagName == "TEXTAREA" || document.activeElement.tagName == "INPUT") return
   if(event.key === "s"){
-    gat.downloadText("map" + ".svg", draw(true));
+    downloadSVG();
   }
 });
 
@@ -131,7 +134,10 @@ function drawRule2FormattedText(drawRules){
       str += addArray(rule, "canvas size", ",\n")
       str += addValue(rule, "zoom", ",\n");
       str += addArray(rule, "pan", ",\n")
-      str += addString(rule, "background", "\n");
+      str += addString(rule, "background", ",\n");
+      str += addString(rule, "auto draw", ",\n");
+      str += addArray(rule, "grid", ",\n");
+      str += addArray(rule, "grid position", "\n");
     } else {
       str += ",\n{\n";
       str += addRuleNodes(rule);
@@ -224,7 +230,15 @@ function updateURLWithDrawRule(){
 
 function updateURLWithDrawSettings(){
   let cdr = currentDrawRules[0];
-  let drawRulesSettings = [...cdr["canvas size"],cdr["zoom"], ...cdr["pan"], cdr["background"]].join(" ");
+  let drawRulesSettings = [
+    ...cdr["canvas size"],
+    cdr["zoom"],
+    ...cdr["pan"],
+    cdr["background"],
+    cdr["auto draw"],
+    ...cdr["grid"],
+    ...cdr["grid position"]
+  ].join(" ");
   gat.setURLQueryParam("s", drawRulesSettings);
 }
 
@@ -234,7 +248,10 @@ function updateDrawRulesWithURL(){
     "canvas size": [parseInt(settingArray[0]),parseInt(settingArray[1])],
     "zoom": parseFloat(settingArray[2]),
     "pan": [parseFloat(settingArray[3]),parseFloat(settingArray[4])],
-    "background": settingArray[5]
+    "background": settingArray[5],
+    "auto draw": settingArray[6],
+    "grid": [parseInt(settingArray[7]),parseInt(settingArray[8])],
+    "grid position": [parseInt(settingArray[9]),parseInt(settingArray[10])],
   }
 
   let base64Str = gat.getURLQueryParam("r").replace(/_/g, "=").replace(/-/g, "+");
@@ -266,9 +283,14 @@ function updateURLWithMapInfo(){
     currentMapInfo.midLon].join(" "))
 }
 
+function downloadSVG(){
+  let filename = currentMapInfo.fileName.split("-latest.osm.pbf")[0]
+  let svg = draw(true);
+  gat.downloadText(filename + "-map" + ".svg", svg);
+}
+
 function setUpGui(){
   let uiObj = new gat.ui();
-
   uiObj.addButton("new map", newOsmMap);
   uiObj.addButton("show tags", showAvailableTags);
 
@@ -281,17 +303,23 @@ function setUpGui(){
   textarea.addEventListener("input", function(){
     textarea.inputChanged = true;
   });
-  uiObj.addFinishedTypingCallback(mapSettingsChanged, 500);
+  uiObj.addFinishedTypingCallback(function(){
+    if(uiObj.textarea.inputChanged === false) return;
+    if(loadedWays.length >= 5000) return;
+    redrawMapSettingsChanged();
+  }, 500);
 
-  uiObj.addButton("save map", function(){
-    gat.downloadText("map" + ".svg", draw(true));
-  })
+  uiObj.addButton("save map", downloadSVG)
 
   uiObj.textarea = textarea;
+
+  uiObj.addButton("draw", redrawMapSettingsChanged);
 
   let jsonErrorBtn = uiObj.addButton("json error", function(){});
   jsonErrorBtn.style.display = "none";
   jsonErrorBtn.style.color = "#ff0000";
+
+  
 
   return uiObj;
 
@@ -407,8 +435,7 @@ function triggerFileInput(){
 }
 
 
-function mapSettingsChanged(){
-  if(uiObj.textarea.inputChanged === false) return;
+function redrawMapSettingsChanged(){
   uiObj.textarea.inputChanged = false;
   currentSlectionStart = uiObj.textarea.selectionStart;
   try{
@@ -422,7 +449,9 @@ function mapSettingsChanged(){
     }
   }
   updateURLWithDrawRule();
-  draw();
+  if(currentDrawRules[0]["auto draw"] === "true"){
+    draw();  
+  }
   uiObj.textarea.focus();
   uiObj.textarea.setSelectionRange(currentSlectionStart, currentSlectionStart);
 }
@@ -573,6 +602,8 @@ function draw(saveFlag){
     ctx.addTo(svgDiv.element);
     var panZoomSVG = svgPanZoom("#mainSVG", {
       controlIconsEnabled: true,
+      minZoom: 0.5,
+      maxZoom: 50,
       onZoom: function(){
         let pan = panZoomSVG.getPan();
         setZoomAndPan(panZoomSVG.getZoom(), [pan.x, pan.y])
@@ -648,7 +679,7 @@ async function updateMapObj(callback, mapArrayBuffer, filePath){
       filePath: filePath,
       buffer: mapArrayBuffer,
       interval: setInterval(function(){
-        loaderText.innerText = "loaded: " + nodeCounter + " ways and " + wayCounter + " nodes";
+        loaderText.innerText = "loaded: " + nodeCounter + " nodes and " + wayCounter + " ways";
       }, 1000),
       startTime: Date.now(), 
       endDocument: function(){

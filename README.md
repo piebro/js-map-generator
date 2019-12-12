@@ -20,6 +20,21 @@ An online tool to generate a custom map with custom rules with an osm dataset in
 
 ### feature
 
+- only draw when something substanial changed?
+  only update the nodes and ways which chnaged?
+  delete the stuff that changed, and redraw that stuff again
+  canvas change only change viewport?
+
+- only draw if it not drawn right now? and then draw? a draw button if there are to many ways and nodes
+
+- a "drawing right now" loading screen
+
+- "grid" and "grid position" in the settings, save all with a click on save (as zip?)
+
+- ? line with and map zoom. should the affect each other?
+
+- ? save the link somehow extra to the map
+
 ### testing
 
 - bigger maps and draw only some stuff on a bigger area, too slow?
@@ -29,3 +44,13 @@ An online tool to generate a custom map with custom rules with an osm dataset in
 [//]: # (links: https://geoffboeing.com/2017/03/urban-form-figure-ground/)
 
 ### example links
+
+### usefull cmds
+
+```bash
+# svg to pdf
+inkscape map.svg --export-pdf=map2.pdf
+
+# pdf to pdf with a3 format
+pdfjam --papersize '{29.7cm,42.0cm}' -o map2-a3.pdf map2.pdf
+```
