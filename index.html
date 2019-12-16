@@ -8,6 +8,10 @@
     <script src="libs/osm-read-pbf.js"> </script>
     <script src="libs/svg-pan-zoom.js"> </script>
     <script src="libs/searchjs.js"> </script>
+    <script src="libs/jszip.min.js"> </script>
+    <script src="libs/FileSaver.min.js"> </script>
+    <script src="libs/svg2pdf.min.js"> </script>
+    <script src="libs/jspdf.min.js"> </script>
     <link rel="stylesheet" type="text/css" href="tool-gui.css">
 </head>
 <body>
@@ -41,6 +45,10 @@ const localFileNames = [
 ]
 
 
+const saveAsPdf = true;
+const pdfSize = [420, 297]; // a3
+
+
 if(gat.getURLQueryParam("s") === null || gat.getURLQueryParam("m") === null || gat.getURLQueryParam("r") === null){
   currentDrawRules = [{
     "canvas size": [1000,1000],
@@ -48,8 +56,7 @@ if(gat.getURLQueryParam("s") === null || gat.getURLQueryParam("m") === null || g
     "pan": [-1006.2,203.8],
     "background": "#e0e0e0",
     "auto draw": "true",
-    "grid": [4,4],
-    "grid position": [1,1]
+    "grid": [1,1]
     },
     {
     "ways": {"building": "yes"},
@@ -104,7 +111,7 @@ window.addEventListener("resize", draw);
 window.addEventListener("keyup", (event) => {
   if (document.activeElement.tagName == "TEXTAREA" || document.activeElement.tagName == "INPUT") return
   if(event.key === "s"){
-    downloadSVG();
+    downloadSVGAndPDf();
   }
 });
 
@@ -136,8 +143,7 @@ function drawRule2FormattedText(drawRules){
       str += addArray(rule, "pan", ",\n")
       str += addString(rule, "background", ",\n");
       str += addString(rule, "auto draw", ",\n");
-      str += addArray(rule, "grid", ",\n");
-      str += addArray(rule, "grid position", "\n");
+      str += addArray(rule, "grid", "\n");
     } else {
       str += ",\n{\n";
       str += addRuleNodes(rule);
@@ -236,8 +242,7 @@ function updateURLWithDrawSettings(){
     ...cdr["pan"],
     cdr["background"],
     cdr["auto draw"],
-    ...cdr["grid"],
-    ...cdr["grid position"]
+    ...cdr["grid"]
   ].join(" ");
   gat.setURLQueryParam("s", drawRulesSettings);
 }
@@ -250,8 +255,7 @@ function updateDrawRulesWithURL(){
     "pan": [parseFloat(settingArray[3]),parseFloat(settingArray[4])],
     "background": settingArray[5],
     "auto draw": settingArray[6],
-    "grid": [parseInt(settingArray[7]),parseInt(settingArray[8])],
-    "grid position": [parseInt(settingArray[9]),parseInt(settingArray[10])],
+    "grid": [parseInt(settingArray[7]),parseInt(settingArray[8])]
   }
 
   let base64Str = gat.getURLQueryParam("r").replace(/_/g, "=").replace(/-/g, "+");
@@ -283,10 +287,68 @@ function updateURLWithMapInfo(){
     currentMapInfo.midLon].join(" "))
 }
 
-function downloadSVG(){
+function downloadSVGAndPDf(){
   let filename = currentMapInfo.fileName.split("-latest.osm.pbf")[0]
-  let svg = draw(true);
-  gat.downloadText(filename + "-map" + ".svg", svg);
+  let grid = currentDrawRules[0]["grid"];
+  if(grid[0] === 1 && grid[1] === 1){
+    let svgCtx = draw(true, [1,1]);
+    
+    if(saveAsPdf){
+      const pdf = jsPDF('p', 'mm', pdfSize);    
+      svg2pdf(svgCtx.node, pdf, {
+        xOffset: 0,
+        yOffset: 0,
+        scale: getPdfScale()
+      });
+      pdf.save(filename + '-map.pdf');
+    } else {
+      gat.downloadText(filename + "-map.svg", svgCtx.svg());
+    }
+
+    return;
+  }
+
+  
+  if(saveAsPdf){
+    const pdf = jsPDF('p', 'mm', pdfSize);
+    for(let i=1; i<=grid[0]; i++){
+      for(let j=1; j<=grid[1]; j++){
+        let svgCtx = draw(true, [i,j]);
+        if(i!=1 || j!=1){
+          pdf.addPage();
+        }
+        svg2pdf(svgCtx.node, pdf, {
+          xOffset: 0,
+          yOffset: 0,
+          scale: getPdfScale()
+        });
+        const uri = pdf.output('datauristring');
+        let idx = uri.indexOf('base64,') + 'base64,'.length;
+        let content = uri.substring(idx);
+        //pdf in zip:
+        //zip.file(filename + "-map-" + i + "-" + j + ".pdf", content, {base64: true});
+      }
+    }
+    pdf.save(filename + '-map-' + grid[0] + '-' + grid[0] + '.pdf');
+  } else {
+    const zip = new JSZip();
+    for(let i=1; i<=grid[0]; i++){
+      for(let j=1; j<=grid[1]; j++){
+        let svgCtx = draw(true, [i,j]);
+        zip.file(filename + "-map-" + i + "-" + j + ".svg", svgCtx.svg());
+      }
+    }
+    zip.generateAsync({type:"blob"})
+    .then(function(content) {
+      saveAs(content, filename + "-map.zip");
+    });
+  }
+  
+  function getPdfScale(){
+    let widthScale = pdfSize[0] / currentDrawRules[0]["canvas size"][0];
+    let heightScale = pdfSize[1] / currentDrawRules[0]["canvas size"][1];
+    return Math.min(widthScale, heightScale);
+  }
 }
 
 function setUpGui(){
@@ -309,7 +371,7 @@ function setUpGui(){
     redrawMapSettingsChanged();
   }, 500);
 
-  uiObj.addButton("save map", downloadSVG)
+  uiObj.addButton("save map", downloadSVGAndPDf)
 
   uiObj.textarea = textarea;
 
@@ -510,20 +572,23 @@ function getBetterDrawRule(drawRule){
   return newDrawRule;
 }
 
-function draw(saveFlag){
+function draw(saveFlag, gridPosition){
   let drawRules = currentDrawRules;
   
   svgDiv.element.style.backgroundColor = drawRules[0]["background"];
   svgDiv.size = drawRules[0]["canvas size"];
 
   var ctx = SVG();
-  ctx.viewbox(0, 0, ...drawRules[0]["canvas size"])
-  ctx.node.id = "mainSVG";
-  ctx.node.style="width:100%; height:100%"
-  ctx.stroke({linecap: 'round', linejoin: 'round'})
 
   if(saveFlag === true){
-    initSaveSvg(ctx, drawRules)
+    ctx.viewbox(0, 0, ...drawRules[0]["canvas size"])
+    ctx.stroke({linecap: 'round', linejoin: 'round'})
+    var bbox = initSaveSvg(ctx, drawRules, gridPosition)
+  } else {
+    ctx.viewbox(0, 0, ...drawRules[0]["canvas size"])
+    ctx.node.id = "mainSVG";
+    ctx.node.style="width:100%; height:100%"
+    ctx.stroke({linecap: 'round', linejoin: 'round'})
   }
 
   for(let drawRule of drawRules){
@@ -536,14 +601,23 @@ function draw(saveFlag){
     }
   }
 
+  
+    
   if(saveFlag === true){
-    return ctx.svg()
+    // to not overpaint the borders
+    let cs = drawRules[0]["canvas size"];
+    let w = (cs[0]+cs[1])*2
+    // right-top -> bottom-right
+    ctx.rect(w, w).move(bbox[2], bbox[1]).fill("#ffffff");
+    // bottom-left -> bottom-right
+    ctx.rect(w, w).move(bbox[0], bbox[3]).fill("#ffffff");
+    return ctx
   }
   else {
     addToDom(ctx, drawRules)
   }
 
-  function initSaveSvg(ctx, drawRules){
+  function initSaveSvg(ctx, drawRules, gridPosition){
     let size = drawRules[0]["canvas size"];
     let rect = ctx.rect(9*size[0], 9*size[1]);
     rect.move(-4*size[0], -4*size[1])
@@ -551,9 +625,28 @@ function draw(saveFlag){
     let scale = drawRules[0]["zoom"];
     let panX = drawRules[0]["pan"][0];
     let panY = drawRules[0]["pan"][1]
+
+    let width = drawRules[0]["canvas size"][0]/drawRules[0]["grid"][0];
+    let height = drawRules[0]["canvas size"][1]/drawRules[0]["grid"][1];
+
+    let bbox = [
+      width * (gridPosition[0]-1) - panX,
+      height * (gridPosition[1]-1) - panY,
+      width * (gridPosition[0]) - panX,
+      height * (gridPosition[1]) - panY,
+    ]
+
+    width = width * (gridPosition[0]-1);
+    height = height * (gridPosition[1]-1);
+    
+    let scaleX = scale * drawRules[0]["grid"][0]
+    let scaleY = scale * drawRules[0]["grid"][1]
+
     ctx.transform({
-      a: scale, b: 0, c: 0, d: scale, e: panX*scale, f: panY*scale
+      a: scaleX, b: 0, c: 0, d: scaleY, e: panX*scaleX - width*drawRules[0]["grid"][0], f: panY*scaleY - height*drawRules[0]["grid"][1]
     })
+    
+    return bbox;
   }
 
   function drawNodes(drawRule){

@@ -16,9 +16,11 @@ An online tool to generate a custom map with custom rules with an osm dataset in
 
 ### bug
 
-- little shaking on redraw and pan != [0,0]
+- save as pdf with zoom != 1 doesnt work
 
 ### feature
+
+- rework my translation of the coordinates. have a better overview with them. make it easier to understand and maintain.
 
 - only draw when something substanial changed?
   only update the nodes and ways which chnaged?
@@ -29,11 +31,17 @@ An online tool to generate a custom map with custom rules with an osm dataset in
 
 - a "drawing right now" loading screen
 
-- "grid" and "grid position" in the settings, save all with a click on save (as zip?)
+- del grid postion setting
 
 - ? line with and map zoom. should the affect each other?
 
 - ? save the link somehow extra to the map
+
+- allgemein beim speichern check ob die linie oder node gezeichnet werden müssen und nur wenn sie sichtbar sind zeichnen
+
+- ? dynamically load the save librarys only when they are needed
+
+- new ui. with better popup windows. some framework needed with the possibilty for pwa
 
 ### testing
 
